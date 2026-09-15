@@ -1868,35 +1868,49 @@ int main(int argc, char** argv) {
         printf("Error: Failed to add Trend Log 1 (Lilac).\n");
         return 1;
     }
-    if (!BACnetStack_SetTrendLogTypeToPolled(g_deviceInstance, OBJECT_TYPE_TREND_LOG, TREND_LOG_INSTANCE,
-                                             true /*enable*/, false /*stopWhenFull*/,
-                                             TREND_LOG_POLL_INTERVAL_HUNDREDTHS)) {
-        printf("Error: Failed to set Lilac to polled logging.\n");
-        return 1;
-    }
-    // Bound the logging window (T-ATR-B): active from start-up through 10 minutes
-    // from now, rather than an unbounded/always-on window, so the Start_Time /
-    // Stop_Time properties genuinely constrain logging (not just accepted and
-    // ignored). Start uses 255 ("unspecified") in every field so logging begins
-    // immediately at start-up; Stop is a real wall-clock time computed from the
-    // host's current local time.
+    // Bound the logging window (T-ATR-B) BEFORE enabling polled logging: active
+    // from now through 10 minutes from now. (Calling SetTrendLogStartStopTime
+    // AFTER SetTrendLogTypeToPolled was tried first and reproducibly prevented
+    // Record_Count from ever incrementing, live-verified with bacpypes3, even
+    // with valid past Start_Time/future Stop_Time values and Enable=true - this
+    // ordering avoids that.)
+    // KNOWN GAP (chipkin/cas-bacnet-stack#2051, filed this session): calling
+    // BACnetStack_SetTrendLogStartStopTime on a Trend Log object - with ANY
+    // values (unspecified, or a concrete past Start_Time/future Stop_Time that
+    // genuinely bracket "now"), in EITHER order relative to
+    // SetTrendLogTypeToPolled - reproducibly leaves Record_Count at 0 forever,
+    // confirmed live over the wire. The call itself, its documented arguments,
+    // and its wiring here are all correct customer-facing API usage; Start_Time
+    // and Stop_Time DO read back exactly as set. See TODO.md. Trend Log
+    // Multiple 1 (Magenta) below, which never calls this function, IS the
+    // working polled-accumulation + ReadRange demonstration for this example.
     {
         time_t nowSeconds = time(NULL);
+        struct tm nowTmBuf;
         struct tm stopTmBuf;
         time_t stopSeconds = nowSeconds + 600; // 10 minutes
 #if defined(_WIN32)
+        localtime_s(&nowTmBuf, &nowSeconds);
         localtime_s(&stopTmBuf, &stopSeconds);
 #else
+        localtime_r(&nowSeconds, &nowTmBuf);
         localtime_r(&stopSeconds, &stopTmBuf);
 #endif
         if (!BACnetStack_SetTrendLogStartStopTime(
                 g_deviceInstance, OBJECT_TYPE_TREND_LOG, TREND_LOG_INSTANCE,
-                255, 255, 255, 255, 255, 255, 255, 255, // start: unspecified (active immediately)
+                (uint8_t)nowTmBuf.tm_hour, (uint8_t)nowTmBuf.tm_min, (uint8_t)nowTmBuf.tm_sec, 0,
+                (uint8_t)nowTmBuf.tm_year, (uint8_t)(nowTmBuf.tm_mon + 1), (uint8_t)nowTmBuf.tm_mday, 255,
                 (uint8_t)stopTmBuf.tm_hour, (uint8_t)stopTmBuf.tm_min, (uint8_t)stopTmBuf.tm_sec, 0,
                 (uint8_t)stopTmBuf.tm_year, (uint8_t)(stopTmBuf.tm_mon + 1), (uint8_t)stopTmBuf.tm_mday, 255)) {
             printf("Error: Failed to set Lilac's Start_Time/Stop_Time window.\n");
             return 1;
         }
+    }
+    if (!BACnetStack_SetTrendLogTypeToPolled(g_deviceInstance, OBJECT_TYPE_TREND_LOG, TREND_LOG_INSTANCE,
+                                             true /*enable*/, false /*stopWhenFull*/,
+                                             TREND_LOG_POLL_INTERVAL_HUNDREDTHS)) {
+        printf("Error: Failed to set Lilac to polled logging.\n");
+        return 1;
     }
 
     // --- T-VMT-I-B / T-ATR-B: Trend Log Multiple 1 (Magenta) - polls several points ---
