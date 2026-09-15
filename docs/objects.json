@@ -1,0 +1,114 @@
+{
+  "objects": [
+    {
+      "type": "Analog Input",
+      "instance": 1,
+      "name": "Bronze",
+      "app": ["Present_Value", "Object_Name", "Units", "Out_Of_Service"],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Event_State"],
+      "note": "REAL, degrees Celsius; starts at 21.5"
+    },
+    {
+      "type": "Binary Input",
+      "instance": 1,
+      "name": "Emerald",
+      "app": ["Present_Value", "Object_Name", "Polarity", "Out_Of_Service"],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Event_State"],
+      "note": "starts inactive"
+    },
+    {
+      "type": "Multi-state Input",
+      "instance": 1,
+      "name": "Hot Pink",
+      "app": ["Present_Value", "Object_Name", "Number_Of_States", "Out_Of_Service", "State_Text"],
+      "enabled": ["State_Text"],
+      "writable": [],
+      "accepted": ["Event_State"],
+      "note": "state 1 of 3: On, Off, Auto"
+    },
+    {
+      "type": "Analog Output",
+      "instance": 1,
+      "name": "Chartreuse",
+      "app": ["Object_Name", "Units", "Out_Of_Service", "Relinquish_Default"],
+      "enabled": [],
+      "writable": ["Present_Value"],
+      "accepted": ["Event_State"],
+      "note": "commandable; 16-slot Priority_Array, Relinquish_Default 20.0 C, served by GetPropertyReal. Present_Value, Priority_Array and Current_Command_Priority are resolved by the stack from the priority array; also the Schedule 1 (Saffron) target at write priority 8"
+    },
+    {
+      "type": "Binary Output",
+      "instance": 1,
+      "name": "Fuchsia",
+      "app": ["Object_Name", "Polarity", "Out_Of_Service", "Relinquish_Default"],
+      "enabled": [],
+      "writable": ["Present_Value"],
+      "accepted": ["Event_State"],
+      "note": "commandable; 16-slot Priority_Array, Relinquish_Default inactive, served by GetPropertyEnumerated"
+    },
+    {
+      "type": "Multi-state Output",
+      "instance": 1,
+      "name": "Indigo",
+      "app": ["Object_Name", "Number_Of_States", "Out_Of_Service", "Relinquish_Default"],
+      "enabled": [],
+      "writable": ["Present_Value"],
+      "accepted": ["Event_State"],
+      "note": "commandable; 16-slot Priority_Array, Relinquish_Default state 1 of 3, served by GetPropertyUnsignedInteger"
+    },
+    {
+      "type": "Analog Value",
+      "instance": 1,
+      "name": "Diamond",
+      "app": ["Object_Name", "Units", "Out_Of_Service"],
+      "enabled": [],
+      "writable": ["Present_Value"],
+      "accepted": ["Event_State"],
+      "note": "the alarm-capable process value (AE-N-I-B). Event_State is NOT a stack default here - it is genuinely computed, because this example arms an intrinsic OutOfRange algorithm on Diamond (SetIntrinsicOutOfRangeAlgorithm + SetAlarmsAndEventsForObjectEnabled); it is marked accepted only because property-profile-reference.md's generic table does not know an algorithm was armed. A client writes Present_Value across 10-90 percent to fire an EventNotification to Notification Class 1 (Jade)"
+    },
+    {
+      "type": "Notification Class",
+      "instance": 1,
+      "name": "Jade",
+      "app": ["Object_Name"],
+      "enabled": [],
+      "writable": ["Recipient_List"],
+      "accepted": ["Priority", "Ack_Required", "Recipient_List"],
+      "note": "AE-CRL-B. Priority, Ack_Required and Recipient_List are NOT stack DEFAULTS - they are genuinely populated, by BACnetStack_AddNotificationClassObject (Priority, Ack_Required) and BACnetStack_AddRecipientToNotificationClass (Recipient_List) at start-up. They are marked accepted only because property-profile-reference.md's generic per-type table does not know about this object-specific host-configuration API and so cannot credit them as stack-served. Recipient_List is also registered writable (BACnetStack_SetPropertyWritable) so a client can redirect it at run time; the stack decodes and stores a WriteProperty to it itself"
+    },
+    {
+      "type": "Network Port",
+      "instance": 1,
+      "name": "Vermilion",
+      "app": ["Object_Name", "Out_Of_Service", "Network_Type", "Protocol_Level", "Changes_Pending"],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Reliability"],
+      "note": "BACnet/IP; Network_Type and Protocol_Level are set from BACnetStack_AddNetworkPortObject()'s arguments (IPv4, BACnet Application) at start-up, not a GetProperty callback like the object's other app-served rows; Changes_Pending is likewise computed and answered natively by the stack's Network Port object. Reliability has no fault condition this example detects, so it is accepted at the generic default (normal)"
+    },
+    {
+      "type": "Schedule",
+      "instance": 1,
+      "name": "Saffron",
+      "app": ["Object_Name", "Reliability", "Out_Of_Service"],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Present_Value", "Effective_Period", "Priority_For_Writing"],
+      "note": "SCHED-I-B. Present_Value, Effective_Period, Schedule_Default, List_Of_Object_Property_References, Priority_For_Writing and Status_Flags are NOT stack DEFAULTS - they are genuinely held and served by the stack's Schedule engine (BACnetStack_AddScheduleObject plus the BACnetStack_SetSchedule*/AddSchedule* configuration calls in main.cpp); it writes Analog Output 1 (Chartreuse) Present_Value at priority 8. Present_Value, Effective_Period and Priority_For_Writing are marked accepted only because property-profile-reference.md's generic table does not know about the Schedule engine's own host-configuration API. One weekly transition (Monday 08:00) and one calendar-date exception (2026-12-25, via the inline calendar-entry form) are seeded at start-up; the 's' key (common/ 2.1.0's DemoAdvance) adds a transition for right now so the change can be observed without waiting for the wall clock"
+    },
+    {
+      "type": "Calendar",
+      "instance": 1,
+      "name": "Cream",
+      "app": ["Object_Name", "Present_Value"],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Date_List"],
+      "note": "exists for SCHED-I-B completeness alongside Saffron's exception, but its Date_List cannot be populated through the customer API (cas-bacnet-stack issue #963 - no read path for a Calendar object's Date_List; the only generic constructed-property callback is test-tool-only). Present_Value therefore always answers false rather than evaluating a Date_List that is never populated - see TODO.md"
+    }
+  ]
+}
