@@ -298,6 +298,27 @@ static const uint32_t SERVICE_ATOMIC_WRITE_FILE = 7;
 static const uint32_t REMOTE_DEVICE_INSTANCE = 389002;        // B-SA-CPP's default instance
 static const uint32_t REMOTE_ANALOG_OUTPUT_INSTANCE = 1;      // its "Chartreuse"
 
+// --- F-TREND (T-VMT-I-B / T-ATR-B) - the series-new headline feature this example DEFINES ---
+// Trend Log 1 "Lilac" polls Analog Input 1 (Bronze)'s Present_Value; Trend Log
+// Multiple 1 "Magenta" polls several points at once. Both use POLLED logging
+// (SetTrendLogTypeToPolled); ReadRange (service 35) retrieves the accumulated
+// Log_Buffer records - a plain ReadProperty of Log_Buffer is REJECTED by the
+// stack itself (Error(OBJECT, READ_ACCESS_DENIED); see AddTrendLogObject's doc
+// comment). BACnetStack_InsertTrendLogRecord (used for the backup/restore half
+// of a Trend Log, e.g. restoring one from a File 1 (Ivory) backup) is genuinely
+// customer-facing at this pin - CASBACnetStackDLL.h, not the test-tool header -
+// confirmed by reading both headers directly (issue #1016 moved it there; its
+// Event Log counterpart, InsertEventLogRecord, stayed test-tool-only, the same
+// trap B-ALSC hit with a similarly-named function).
+static const uint16_t OBJECT_TYPE_TREND_LOG = 20;
+static const uint16_t OBJECT_TYPE_TREND_LOG_MULTIPLE = 27;
+static const uint32_t TREND_LOG_INSTANCE = 1;              // "Lilac"
+static const uint32_t TREND_LOG_MULTIPLE_INSTANCE = 1;     // "Magenta"
+static const uint32_t TREND_LOG_MAX_BUFFER_SIZE = 200;
+static const uint32_t TREND_LOG_MULTIPLE_MAX_BUFFER_SIZE = 200;
+static const uint32_t TREND_LOG_POLL_INTERVAL_HUNDREDTHS = 100;  // 1 second (integer-divided by 100)
+static const uint32_t SERVICE_READ_RANGE = 35;
+
 // A WriteProperty to a commandable Present_Value carries a priority 1..16. When a
 // client omits it, BACnet uses 16 (the lowest priority) - so normalise anything
 // out of range to 16, matching the stack's own behaviour.
@@ -820,6 +841,12 @@ bool GetPropertyCharString(const uint32_t deviceInstance, const uint16_t objectT
         }
         if (objectType == OBJECT_TYPE_FILE && objectInstance == FILE_INSTANCE) {
             return ReturnCharacterString("Ivory", value, valueElementCount, maxElementCount, encodingType);
+        }
+        if (objectType == OBJECT_TYPE_TREND_LOG && objectInstance == TREND_LOG_INSTANCE) {
+            return ReturnCharacterString("Lilac", value, valueElementCount, maxElementCount, encodingType);
+        }
+        if (objectType == OBJECT_TYPE_TREND_LOG_MULTIPLE && objectInstance == TREND_LOG_MULTIPLE_INSTANCE) {
+            return ReturnCharacterString("Magenta", value, valueElementCount, maxElementCount, encodingType);
         }
     }
     // Ivory (File 1) - File_Type is REQUIRED with no stack default.
@@ -1479,6 +1506,7 @@ int main(int argc, char** argv) {
         { SERVICE_UNCONFIRMED_EVENT_NOTIFICATION,"UnconfirmedEventNotification (AE-N-I-B)" },
         { SERVICE_ATOMIC_READ_FILE,              "AtomicReadFile (DM-BR-B)" },
         { SERVICE_ATOMIC_WRITE_FILE,             "AtomicWriteFile (DM-BR-B)" },
+        { SERVICE_READ_RANGE,                    "ReadRange (T-ATR-B)" },
     };
     for (size_t i = 0; i < sizeof(services) / sizeof(services[0]); ++i) {
         if (!BACnetStack_SetServiceEnabled(g_deviceInstance, services[i].service, true)) {
@@ -1824,6 +1852,84 @@ int main(int argc, char** argv) {
                                                 5 /*restorePreparationTime*/, 5 /*restoreCompletionTime*/,
                                                 120 /*backupFailureTimeout*/, true)) {
         printf("Error: could not enable Backup and Restore (DM-BR-B).\n");
+        return 1;
+    }
+
+    // --- T-VMT-I-B / T-ATR-B: Trend Log 1 (Lilac) - polls Bronze (AI 1) --------
+    // AddTrendLogObject creates the object itself (no separate AddObject call,
+    // unlike Schedule/Calendar). isLoggedObjectInRemoteDevice MUST be false - the
+    // stack does not implement remote-object trend logging (see the header's own
+    // doc comment); this example only logs local points, matching the profile's
+    // requirement.
+    if (!BACnetStack_AddTrendLogObject(g_deviceInstance, TREND_LOG_INSTANCE,
+                                       OBJECT_TYPE_ANALOG_INPUT, ANALOG_INPUT_INSTANCE,
+                                       PROPERTY_IDENTIFIER_PRESENT_VALUE, false, 0,
+                                       TREND_LOG_MAX_BUFFER_SIZE, false, 0)) {
+        printf("Error: Failed to add Trend Log 1 (Lilac).\n");
+        return 1;
+    }
+    if (!BACnetStack_SetTrendLogTypeToPolled(g_deviceInstance, OBJECT_TYPE_TREND_LOG, TREND_LOG_INSTANCE,
+                                             true /*enable*/, false /*stopWhenFull*/,
+                                             TREND_LOG_POLL_INTERVAL_HUNDREDTHS)) {
+        printf("Error: Failed to set Lilac to polled logging.\n");
+        return 1;
+    }
+    // Bound the logging window (T-ATR-B): active from start-up through 10 minutes
+    // from now, rather than an unbounded/always-on window, so the Start_Time /
+    // Stop_Time properties genuinely constrain logging (not just accepted and
+    // ignored). Start uses 255 ("unspecified") in every field so logging begins
+    // immediately at start-up; Stop is a real wall-clock time computed from the
+    // host's current local time.
+    {
+        time_t nowSeconds = time(NULL);
+        struct tm stopTmBuf;
+        time_t stopSeconds = nowSeconds + 600; // 10 minutes
+#if defined(_WIN32)
+        localtime_s(&stopTmBuf, &stopSeconds);
+#else
+        localtime_r(&stopSeconds, &stopTmBuf);
+#endif
+        if (!BACnetStack_SetTrendLogStartStopTime(
+                g_deviceInstance, OBJECT_TYPE_TREND_LOG, TREND_LOG_INSTANCE,
+                255, 255, 255, 255, 255, 255, 255, 255, // start: unspecified (active immediately)
+                (uint8_t)stopTmBuf.tm_hour, (uint8_t)stopTmBuf.tm_min, (uint8_t)stopTmBuf.tm_sec, 0,
+                (uint8_t)stopTmBuf.tm_year, (uint8_t)(stopTmBuf.tm_mon + 1), (uint8_t)stopTmBuf.tm_mday, 255)) {
+            printf("Error: Failed to set Lilac's Start_Time/Stop_Time window.\n");
+            return 1;
+        }
+    }
+
+    // --- T-VMT-I-B / T-ATR-B: Trend Log Multiple 1 (Magenta) - polls several points ---
+    if (!BACnetStack_AddTrendLogMultipleObject(g_deviceInstance, TREND_LOG_MULTIPLE_INSTANCE,
+                                               TREND_LOG_MULTIPLE_MAX_BUFFER_SIZE)) {
+        printf("Error: Failed to add Trend Log Multiple 1 (Magenta).\n");
+        return 1;
+    }
+    if (!BACnetStack_AddLoggedObjectToTrendLogMultiple(
+            g_deviceInstance, TREND_LOG_MULTIPLE_INSTANCE,
+            OBJECT_TYPE_ANALOG_INPUT, ANALOG_INPUT_INSTANCE, PROPERTY_IDENTIFIER_PRESENT_VALUE,
+            false, 0, false, 0)) {
+        printf("Error: Failed to point Magenta at Bronze.\n");
+        return 1;
+    }
+    if (!BACnetStack_AddLoggedObjectToTrendLogMultiple(
+            g_deviceInstance, TREND_LOG_MULTIPLE_INSTANCE,
+            OBJECT_TYPE_ANALOG_VALUE, ANALOG_VALUE_INSTANCE, PROPERTY_IDENTIFIER_PRESENT_VALUE,
+            false, 0, false, 0)) {
+        printf("Error: Failed to point Magenta at Diamond.\n");
+        return 1;
+    }
+    if (!BACnetStack_AddLoggedObjectToTrendLogMultiple(
+            g_deviceInstance, TREND_LOG_MULTIPLE_INSTANCE,
+            OBJECT_TYPE_ANALOG_OUTPUT, ANALOG_OUTPUT_INSTANCE, PROPERTY_IDENTIFIER_PRESENT_VALUE,
+            false, 0, false, 0)) {
+        printf("Error: Failed to point Magenta at Chartreuse.\n");
+        return 1;
+    }
+    if (!BACnetStack_SetTrendLogTypeToPolled(g_deviceInstance, OBJECT_TYPE_TREND_LOG_MULTIPLE, TREND_LOG_MULTIPLE_INSTANCE,
+                                             true /*enable*/, false /*stopWhenFull*/,
+                                             TREND_LOG_POLL_INTERVAL_HUNDREDTHS)) {
+        printf("Error: Failed to set Magenta to polled logging.\n");
         return 1;
     }
 
