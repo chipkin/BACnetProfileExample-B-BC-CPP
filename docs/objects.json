@@ -8,7 +8,7 @@
       "enabled": [],
       "writable": [],
       "accepted": ["Event_State"],
-      "note": "REAL, degrees Celsius; starts at 21.5"
+      "note": "REAL, degrees Celsius; starts at 21.5. Also the logged point for Trend Log 1 (Lilac) and one of the three logged points for Trend Log Multiple 1 (Magenta)"
     },
     {
       "type": "Binary Input",
@@ -38,7 +38,7 @@
       "enabled": [],
       "writable": ["Present_Value"],
       "accepted": ["Event_State"],
-      "note": "commandable; 16-slot Priority_Array, Relinquish_Default 20.0 C, served by GetPropertyReal. Present_Value, Priority_Array and Current_Command_Priority are resolved by the stack from the priority array; also the Schedule 1 (Saffron) target at write priority 8"
+      "note": "commandable; 16-slot Priority_Array, Relinquish_Default 20.0 C, served by GetPropertyReal. Present_Value, Priority_Array and Current_Command_Priority are resolved by the stack from the priority array; also Schedule 1 (Saffron)'s local write target at priority 8, and one of the three logged points for Trend Log Multiple 1 (Magenta). Verified live: a WriteProperty of 42.5 at priority 8 reads back correctly"
     },
     {
       "type": "Binary Output",
@@ -68,17 +68,17 @@
       "enabled": [],
       "writable": ["Present_Value"],
       "accepted": ["Event_State"],
-      "note": "the alarm-capable process value (AE-N-I-B). Event_State is NOT a stack default here - it is genuinely computed, because this example arms an intrinsic OutOfRange algorithm on Diamond (SetIntrinsicOutOfRangeAlgorithm + SetAlarmsAndEventsForObjectEnabled); it is marked accepted only because property-profile-reference.md's generic table does not know an algorithm was armed. A client writes Present_Value across 10-90 percent to fire an EventNotification to Notification Class 1 (Jade)"
+      "note": "the alarm-capable process value (AE-N-I-B). Event_State is NOT a stack default here - it is genuinely computed, because this example arms an intrinsic OutOfRange algorithm on Diamond (SetIntrinsicOutOfRangeAlgorithm + SetAlarmsAndEventsForObjectEnabled); it is marked accepted only because property-profile-reference.md's generic table does not know an algorithm was armed. A client writes Present_Value across 10-90 percent to fire an EventNotification to Notification Class 1 (Crimson). Verified live: writing 95.0 transitions Event_State to high-limit. Also one of the three logged points for Trend Log Multiple 1 (Magenta)"
     },
     {
       "type": "Notification Class",
       "instance": 1,
-      "name": "Jade",
+      "name": "Crimson",
       "app": ["Object_Name"],
       "enabled": [],
       "writable": ["Recipient_List"],
       "accepted": ["Priority", "Ack_Required", "Recipient_List"],
-      "note": "AE-CRL-B. Priority, Ack_Required and Recipient_List are NOT stack DEFAULTS - they are genuinely populated, by BACnetStack_AddNotificationClassObject (Priority, Ack_Required) and BACnetStack_AddRecipientToNotificationClass (Recipient_List) at start-up. They are marked accepted only because property-profile-reference.md's generic per-type table does not know about this object-specific host-configuration API and so cannot credit them as stack-served. Recipient_List is also registered writable (BACnetStack_SetPropertyWritable) so a client can redirect it at run time; the stack decodes and stores a WriteProperty to it itself"
+      "note": "AE-CRL-B. Priority, Ack_Required and Recipient_List are NOT stack DEFAULTS - they are genuinely populated, by BACnetStack_AddNotificationClassObject (Priority, Ack_Required) and BACnetStack_AddRecipientToNotificationClass (Recipient_List) at start-up. They are marked accepted only because property-profile-reference.md's generic per-type table does not know about this object-specific host-configuration API and so cannot credit them as stack-served. Recipient_List is also registered writable (BACnetStack_SetPropertyWritable) so a client can redirect it at run time; the stack decodes and stores a WriteProperty to it itself. Verified live: Recipient_List reads back the seeded destination. Named Crimson (not Jade, the B-AAC seed's naming defect for this object type - see colour-table.md, Jade is lighting_output's colour) per docs/colour-table.md"
     },
     {
       "type": "Network Port",
@@ -98,7 +98,7 @@
       "enabled": [],
       "writable": [],
       "accepted": ["Present_Value", "Effective_Period", "Priority_For_Writing"],
-      "note": "SCHED-I-B. Present_Value, Effective_Period, Schedule_Default, List_Of_Object_Property_References, Priority_For_Writing and Status_Flags are NOT stack DEFAULTS - they are genuinely held and served by the stack's Schedule engine (BACnetStack_AddScheduleObject plus the BACnetStack_SetSchedule*/AddSchedule* configuration calls in main.cpp); it writes Analog Output 1 (Chartreuse) Present_Value at priority 8. Present_Value, Effective_Period and Priority_For_Writing are marked accepted only because property-profile-reference.md's generic table does not know about the Schedule engine's own host-configuration API. One weekly transition (Monday 08:00) and one calendar-date exception (2026-12-25, via the inline calendar-entry form) are seeded at start-up; the 's' key (common/ 2.1.0's DemoAdvance) adds a transition for right now so the change can be observed without waiting for the wall clock"
+      "note": "SCHED-E-B. Present_Value, Effective_Period, Schedule_Default, List_Of_Object_Property_References, Priority_For_Writing and Status_Flags are NOT stack DEFAULTS - they are genuinely held and served by the stack's Schedule engine (BACnetStack_AddScheduleObject plus the BACnetStack_SetSchedule*/AddSchedule* configuration calls in main.cpp). List_Of_Object_Property_References has TWO entries (each BACnetStack_AddScheduleObjectPropertyReference call appends): a LOCAL one at Analog Output 1 (Chartreuse) Present_Value, and a REMOTE one at a peer device's (default instance 389002, e.g. a locally-built B-SA-CPP) Analog Output 1 Present_Value - the SCHED-E-B / F-EXTWRITE remote fan-out. The local write is proven (inherited from B-AAC's SCHED-I-B); the remote write is correct, documented API usage but was not wire-verified end-to-end this session because two example instances on different UDP ports on one host cannot discover each other by broadcast - see TODO.md item 3. One weekly transition (Monday 08:00) and one calendar-date exception (2026-12-25, via the inline calendar-entry form) are seeded at start-up; the 's' key (common/'s DemoAdvance) adds a transition for right now so the change can be observed without waiting for the wall clock"
     },
     {
       "type": "Calendar",
@@ -108,7 +108,37 @@
       "enabled": [],
       "writable": [],
       "accepted": ["Date_List"],
-      "note": "exists for SCHED-I-B completeness alongside Saffron's exception, but its Date_List cannot be populated through the customer API (cas-bacnet-stack issue #963 - no read path for a Calendar object's Date_List; the only generic constructed-property callback is test-tool-only). Present_Value therefore always answers false rather than evaluating a Date_List that is never populated - see TODO.md"
+      "note": "exists for SCHED-E-B completeness alongside Saffron's exception, but its Date_List cannot be populated through the customer API (cas-bacnet-stack issue #963 - no read path for a Calendar object's Date_List; the only generic constructed-property callback is test-tool-only). Present_Value therefore always answers false rather than evaluating a Date_List that is never populated - see TODO.md"
+    },
+    {
+      "type": "File",
+      "instance": 1,
+      "name": "Ivory",
+      "app": ["Object_Name", "File_Type", "File_Size", "Modification_Date", "Archive", "Read_Only"],
+      "enabled": [],
+      "writable": ["Archive"],
+      "accepted": ["Event_State"],
+      "note": "DM-BR-B. A small in-memory STREAM-access file that AtomicReadFile/AtomicWriteFile operate on, and the backup/restore payload for ReinitializeDevice's STARTBACKUP/ENDBACKUP/STARTRESTORE/ENDRESTORE/ABORTRESTORE states (2-6), all accepted by ReinitializeDevice alongside COLDSTART/WARMSTART. BACnetStack_SetBackupAndRestoreEnabled plus the four Prepare/Complete Backup/Restore callbacks are registered. Verified live: File_Size reads 0 (nothing written yet this session) and a WriteProperty of Archive=true reads back correctly"
+    },
+    {
+      "type": "Trend Log",
+      "instance": 1,
+      "name": "Lilac",
+      "app": ["Object_Name"],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Enable", "Stop_When_Full", "Buffer_Size", "Log_Buffer", "Record_Count", "Total_Record_Count", "Logging_Type", "Event_State"],
+      "note": "T-VMT-I-B / T-ATR-B. Enable, Stop_When_Full, Buffer_Size, Log_Buffer, Record_Count, Total_Record_Count and Logging_Type are NOT stack defaults - they are genuinely held and served by the stack's Trend Log engine (BACnetStack_AddTrendLogObject + SetTrendLogTypeToPolled + SetTrendLogStartStopTime), marked accepted only because property-profile-reference.md's generic table does not know about this host-configuration API. Polls Analog Input 1 (Bronze) Present_Value every second. Log_Buffer is readable only via ReadRange (a plain ReadProperty is rejected with Error(OBJECT, READ_ACCESS_DENIED) - verified live); ReadRange itself was verified live against Trend Log Multiple 1 (Magenta), not this object - see the note there and TODO.md item 1. KNOWN GAP: calling SetTrendLogStartStopTime on this object reproducibly leaves Record_Count at 0 forever regardless of the values passed (filed as cas-bacnet-stack#2051); this object therefore demonstrates the SetTrendLogStartStopTime call's correct usage but will read Record_Count=0 in a live demo. Also KNOWN: BACnetStack_AddTrendLogObject alone causes a continuous non-fatal internal log flood (cas-bacnet-stack#2050, same class as B-ACC's #2045 for Event Log) - device functionality is unaffected"
+    },
+    {
+      "type": "Trend Log Multiple",
+      "instance": 1,
+      "name": "Magenta",
+      "app": ["Object_Name"],
+      "enabled": [],
+      "writable": [],
+      "accepted": ["Enable", "Event_State"],
+      "note": "T-VMT-I-B / T-ATR-B. Enable is NOT a stack default - it is genuinely held and served by the stack's Trend Log Multiple engine (BACnetStack_AddTrendLogMultipleObject + AddLoggedObjectToTrendLogMultiple x3 + SetTrendLogTypeToPolled), marked accepted only because property-profile-reference.md's generic table does not know about this host-configuration API. Polls three points every second: Analog Input 1 (Bronze), Analog Value 1 (Diamond) and Analog Output 1 (Chartreuse) Present_Value. THIS is the example's working, live-verified polled-logging + ReadRange demonstration (unlike Lilac - see TODO.md item 1): Record_Count climbed from 0 to 150+ across several live runs, and ReadRange (RangeByPosition, first=1, count=5) returned real LogMultipleRecord entries. Also affected by the same AddTrendLogObject-family log-flood as Lilac (cas-bacnet-stack#2050) - non-fatal"
     }
   ]
 }
