@@ -2,22 +2,21 @@
 
 Guidance for AI coding agents working in this repository. See
 <https://agents.md/> for the format. Human contributors should read
-[README.md](README.md) first.
+[README.md](README.md) first, then [TUTORIAL.md](TUTORIAL.md).
 
 ## What this project is
 
 A **tutorial** C++ example that implements **as much of** the BACnet **B-BC
 (Building Controller)** profile as the standard CAS BACnet Stack supports. It
-is the series **capstone** - one git repo per BACnet profile - grafting
-together features already proven by six sibling examples (commandable
-outputs, DeviceCommunicationControl, intrinsic alarming, a writable
-event-recipient list, time synchronisation, ReinitializeDevice, Backup and
-Restore, external-write scheduling) plus one genuinely new feature this
-example defines: **trending** (Trend Log, Trend Log Multiple, ReadRange).
-What B-BC requires but the stack cannot yet do, or a defect the stack has,
-is documented in [TODO.md](TODO.md) - keep that file honest and current. The
-top priority is that the code reads like a tutorial a customer can learn
-from and copy-paste. Favour clarity over cleverness.
+is the series' largest single example - combining commandable outputs,
+DeviceCommunicationControl, intrinsic alarming, a writable event-recipient
+list, time synchronisation, ReinitializeDevice, Backup and Restore, external-
+write scheduling (SCHED-E-B), and trending (Trend Log, Trend Log Multiple,
+ReadRange). What B-BC requires but the stack cannot yet do, or a defect the
+stack has, is documented in [TODO.md](TODO.md) and [TUTORIAL.md](TUTORIAL.md)
+- keep both honest and current. The top priority is that the code reads like
+a tutorial a customer can learn from and copy-paste. Favour clarity over
+cleverness.
 
 ## Layout
 
@@ -25,34 +24,44 @@ This repository is self-contained:
 
 - `main.cpp` - the example device.
 - `common/` - the shared helper (vendored).
+- `README.md` - what this example is. Keep it short and about THIS example
+  only.
+- `TUTORIAL.md` - how to extend and review the example, including every
+  known silent-failure trap and this example's filed stack gaps. Long-form
+  material that would bloat the README belongs here.
+- `docs/PICS.md` - the Protocol Implementation Conformance Statement. Its
+  objects-and-properties section is GENERATED from `docs/objects.json`; do
+  not hand-edit between the `OBJECTS-PROPERTIES` markers.
+- `docs/objects.json` - the input to that generator. Update it in the same
+  change as any `main.cpp` change that adds an object or a `GetProperty*`
+  branch. The Device object's entry must stay first.
 - `submodules/cas-bacnet-stack/` - the **CAS BACnet Stack** as a git submodule
   (private; compiled from source). After cloning, run
   `git submodule update --init --recursive`.
 
+The `PROFILE-TABLE` block in README.md is also generated, from the
+example-series repository's `docs/profile-table.md`. Edit it there, not here,
+and re-sync with `./tools/sync-profile-table.sh BACnetProfileExample-B-BC-CPP`
+(always with the repo argument - omitting it rewrites every sibling repo).
+
 ## Build
 
-This example links the CAS BACnet Stack as a prebuilt **STATIC** library (the
-only mode it ships in - see the README's "Link mode" section):
+Plain CMake, identical on every platform, in the adapter's default SOURCE mode
+(the stack's sources are compiled into the executable - no prebuilt library, no
+DLL, no per-platform pre-step):
 
 ```bash
 git submodule update --init --recursive   # once, if not cloned with --recursive
-tools/build-stack-static.sh BACnetProfileExample-B-BC-CPP   # from the series root
-cmake -B build -S . -DCAS_BACNET_STACK_LINK=STATIC
+cmake -B build -S .
 cmake --build build --config Release
 ```
 
-The stack library build takes several minutes the first time - it compiles
-the whole stack (~600 files) once, via the stack's own project files; the
-example itself then builds in seconds against that library. Use
-`-D CAS_STACK_DIR=...` only if your stack lives outside the bundled
-submodule.
-
-**Toolset note for a machine with multiple Visual Studio installs:** if
-linking fails with `LINK : fatal error C1900: Il mismatch`, the stack
-library and the example were built with different physical compiler copies.
-Pass `TOOLSET=<PlatformToolset the pinned vcxproj declares>` and
-`MSBUILD=<path to the matching msbuild.exe>` to `build-stack-static.sh` to
-pin both builds to the same copy.
+The first build compiles the whole stack (~600 files) and takes a few minutes;
+rebuilds after that are incremental and fast. Use `-D CAS_STACK_DIR=...` only if
+your stack lives outside the bundled submodule. Do not reintroduce a link-mode
+flag, `tools/build-stack-static.sh`, or a series-root build script into the
+documented build: a customer downloads this repository on its own and must be
+able to build it with the two commands above.
 
 ## Run
 
@@ -61,27 +70,24 @@ pin both builds to the same copy.
 .\build\Release\BACnetExampleBBC.exe [--port 47808] [--deviceID 389005]   # Windows
 ```
 
-Interactive keys while running: `h` help, `q` quit, up/down nudge Analog Input 1,
-`s` advance Schedule 1 (Saffron) to a transition right now.
+Interactive keys while running: `h` help, `q` quit, up/down nudge Analog
+Input 1, `s` advance Schedule 1 (Saffron) to a transition right now.
 
 ## Conventions
 
 - Device is named "Rainbow"; objects use the series' colour names; vendor id 389.
 - Implement the B-BC services the stack supports; expose **every required
   property** of each object for Protocol_Revision 24. Anything B-BC requires
-  that is NOT implemented must be listed in [TODO.md](TODO.md) and the README.
-- Intrinsic alarming, commandable outputs, DeviceCommunicationControl, time
-  sync and ReinitializeDevice follow the same patterns as B-AAC (this
-  example's seed) - see its own AGENTS.md if working on those sections.
-- **Trending (new in this example):** `BACnetStack_AddTrendLogObject` /
-  `AddTrendLogMultipleObject` + `AddLoggedObjectToTrendLogMultiple` +
-  `SetTrendLogTypeToPolled` create and drive a Trend Log; the stack stores
-  and serves almost everything (`Enable`, `Buffer_Size`, `Log_Buffer`,
-  `Record_Count`, etc.) - only `Object_Name` needs an app callback.
-  `Log_Buffer` is **ReadRange-only** (a plain ReadProperty is rejected).
-  **KNOWN STACK DEFECT:** calling `SetTrendLogStartStopTime` on a Trend Log
-  (not Trend Log Multiple) reproducibly blocks `Record_Count` from ever
-  incrementing - filed as
+  that is NOT implemented must be listed in [TODO.md](TODO.md) and
+  [TUTORIAL.md](TUTORIAL.md).
+- **Trending:** `BACnetStack_AddTrendLogObject` / `AddTrendLogMultipleObject`
+  + `AddLoggedObjectToTrendLogMultiple` + `SetTrendLogTypeToPolled` create and
+  drive a Trend Log; the stack stores and serves almost everything (`Enable`,
+  `Buffer_Size`, `Log_Buffer`, `Record_Count`, etc.) - only `Object_Name`
+  needs an app callback. `Log_Buffer` is **ReadRange-only** (a plain
+  ReadProperty is rejected). **KNOWN STACK DEFECT:** calling
+  `SetTrendLogStartStopTime` on a Trend Log (not Trend Log Multiple)
+  reproducibly blocks `Record_Count` from ever incrementing - filed as
   [cas-bacnet-stack#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051).
   Don't "fix" this by silently dropping the call from Lilac - it demonstrates
   correct API usage on purpose; Magenta (which never calls it) is the working
@@ -106,8 +112,12 @@ Interactive keys while running: `h` help, `q` quit, up/down nudge Analog Input 1
   the four Prepare/Complete Backup/Restore callbacks + `ReadFile`/`WriteFile`
   callbacks on File 1 (Ivory); `ReinitializeDevice` must accept states 2-6
   (STARTBACKUP..ABORTRESTORE) as well as COLDSTART/WARMSTART.
-- Match the surrounding code style: `const`-correct parameters, check every stack
-  return value, keep `main.cpp` linear and well-commented.
+- An OPTIONAL property needs `BACnetStack_SetPropertyEnabled`, not just a
+  `GetProperty*` callback branch - the stack checks whether a property is
+  enabled before it ever calls your callback. This example shipped that exact
+  bug once for the Device's `Description`. See TUTORIAL.md.
+- Match the surrounding code style: `const`-correct parameters, check every
+  stack return value, keep `main.cpp` linear and well-commented.
 - **Never edit `common/` in this repo alone** - it is a vendored copy shared by
   every example in the series, with its own version (`COMMON_VERSION`) and
   changelog (`common/CHANGELOG.md`). To change it: edit, bump the version, add
@@ -142,6 +152,10 @@ There are no unit tests; verification is behavioural:
 9. **Device management**: ReinitializeDevice WARMSTART SimpleACKs; DCC
    `disable-initiation`/`enable` SimpleACK; a wrong password (if set) is
    rejected.
+10. If you changed the objects or their properties, regenerate
+    `docs/PICS.md` (`python tools/gen-objects-properties.py
+    BACnetProfileExample-B-BC-CPP` from the series root) and confirm no row
+    comes out flagged with ⚠.
 
 Verification is manual (no in-repo test suite ships).
 
@@ -152,6 +166,5 @@ then tag `vX.Y.Z`. The GitHub Actions workflow builds and publishes the release.
 
 ## License
 
-The example source code is dedicated to the public domain under
-[CC0-1.0](LICENSE). The CAS BACnet Stack is a separate, commercially licensed
-product and is not covered by that dedication.
+See [LICENSE](LICENSE). The CAS BACnet Stack is a separate, commercially
+licensed product and is not covered by it.
