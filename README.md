@@ -598,8 +598,12 @@ run (`metrics-windows.json` / `metrics-linux.json`), both built with
 `CAS_BACNET_STACK_LINK=STATIC`:
 
 <!-- METRICS -->
-_Not yet released - this table is populated by CI from the first tagged
-`v1.0.0` release. See `.github/workflows/release.yml`._
+| Platform | Binary | Size | SHA-256 (prefix) | Start-up to `ready` | Stack commit | Link mode | Compiler |
+|---|---|---|---|---|---|---|---|
+| Windows x64 (windows-2022) | `BACnetExampleBBC.exe` | 3,457,536 bytes (~3.3 MiB) | `fc06ece93ad8983d` | 540 ms | `abd4cee1` | STATIC | Visual Studio 17 2022 |
+| Linux x64 (ubuntu-latest) | `BACnetExampleBBC` | 64,216 bytes (~63 KiB) | `88daf21f620cedeb` | 109 ms | `abd4cee1` | STATIC | `/usr/bin/c++` |
+
+From release [v1.0.0](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/releases/tag/v1.0.0) (`metrics-windows.json` / `metrics-linux.json`).
 
 ## References
 
