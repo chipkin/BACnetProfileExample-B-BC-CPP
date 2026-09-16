@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Restructured documentation to match the series' shared shape: `README.md`
+  is cut down to what this example is and how to build/run/verify it;
+  `TUTORIAL.md` (new) carries the extending/reviewing material and every
+  silent-failure trap and filed stack gap (SetTrendLogStartStopTime blocking
+  Lilac's Record_Count - #2051, the AddTrendLogObject log flood - #2050, the
+  SCHED-E-B remote-write test-topology limitation, and the Calendar Date_List
+  gap - #963); `docs/PICS.md` (new) is the ANSI/ASHRAE 135 Annex A conformance
+  statement, generated in part from `docs/objects.json`.
+- `docs/objects.json` gained a `Device` entry (previously the generated tables
+  omitted the Device object).
+- Build documentation switched from the prebuilt **STATIC** library
+  (`tools/build-stack-static.sh` + `-DCAS_BACNET_STACK_LINK=STATIC`) to the
+  adapter's default **SOURCE** mode: `cmake -B build -S .` then
+  `cmake --build build --config Release`, identical on every platform, no
+  series-root script or prebuilt library step. `.github/workflows/release.yml`
+  dropped the static-library cache/build steps and the matrix `lib:` entries,
+  configures without a link-mode flag, asserts `CAS_BACNET_STACK_LINK=SOURCE`,
+  records `"link_mode": "SOURCE"` in the published metrics, and packages
+  `TUTORIAL.md` / `docs/PICS.md` alongside the binary. The published v1.0.0
+  footprint numbers were measured under the STATIC build; the next release
+  refreshes them under the SOURCE build documented here.
+- `main.cpp`'s `CHANGE ALL OF THIS BEFORE YOU SHIP` block gained a per-field
+  comment for every ship-checklist item, including the `DEVICE_NAME`
+  uniqueness warning.
+
 ## [1.0.0] - 2026-09-15
 
 ### Added
