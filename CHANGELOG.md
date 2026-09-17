@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Synced `common/` to 2.7.0 (from `BACnetProfileExample-B-SS-CPP`): RX/TX log
+  lines now name the service, the object/property being requested, and any
+  NPDU routing destination (DNET/DADR) - live-verified against this
+  example's own SCHED-E-B remote-discovery Who-Is, which correctly showed
+  `DNET=65535`. A new `--xml` option (off by default) prints every frame as
+  a full XML block instead. See `common/CHANGELOG.md` for the decode
+  details.
+
 ### Changed
 
 - Restructured documentation to match the series' shared shape: `README.md`
