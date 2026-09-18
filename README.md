@@ -27,12 +27,8 @@ and ReadRange). It listens on **BACnet/IP (UDP 47808)** and claims only B-BC.
 > **B-BC is not fully claimable with the standard stack yet.** This example
 > implements every B-BC capability the standard CAS BACnet Stack exposes, and
 > clearly marks what it cannot do - see [TUTORIAL.md](TUTORIAL.md) and
-> [TODO.md](TODO.md). In summary: Trend Log 1 ("Lilac") demonstrates
-> `SetTrendLogStartStopTime`'s correct usage but a confirmed stack defect
-> ([#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)) leaves its
-> `Record_Count` at 0 - Trend Log Multiple 1 ("Magenta") is the live-verified,
-> working polled-logging + ReadRange demonstration instead; `AddTrendLogObject`
-> also causes a non-fatal internal log flood
+> [TODO.md](TODO.md). In summary: `AddTrendLogObject` causes a non-fatal
+> internal log flood
 > ([#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050)); Calendar 1
 > ("Cream")'s `Date_List` cannot be populated (issue #963); and Schedule 1's
 > SCHED-E-B remote write is correctly wired but was not wire-verified
@@ -66,8 +62,8 @@ Network Port 1           "Vermilion"   (BACnet/IP - required)
 Schedule 1               "Saffron"     (drives Chartreuse locally AND a remote peer - SCHED-E-B)
 Calendar 1               "Cream"       (see TUTORIAL.md - Date_List not evaluated)
 File 1                   "Ivory"       (backup/restore payload - DM-BR-B)
-Trend Log 1              "Lilac"       (polls Bronze; see TUTORIAL.md for a known gap)
-Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse - the working demo)
+Trend Log 1              "Lilac"       (polls Bronze)
+Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 ```
 
 ## What this example supports
@@ -286,8 +282,7 @@ or any BACnet client:
    read verified live; write not re-tested this session.*
 6. **Trend (T-VMT-I-B / T-ATR-B)** - wait a few seconds, then ReadRange
    Magenta's `Log_Buffer`; confirm `Record_Count` climbs and records decode.
-   *Verified live.* (Lilac's own `Record_Count` stays 0 - see
-   [TUTORIAL.md](TUTORIAL.md).)
+   Lilac's `Record_Count` climbs too. *Verified live.*
 7. **Backup (DM-BR-B)** - AtomicWriteFile then AtomicReadFile against Ivory;
    round-trip the bytes; drive ReinitializeDevice through STARTBACKUP/ENDBACKUP.
    *File_Size/Archive verified live; the Atomic*File round-trip and the
