@@ -1,8 +1,38 @@
 # TODO — known gaps (all verified against the pinned stack source and/or the wire, not assumed)
 
-Stack pin: `abd4cee1c7f28ca8e1af4720849c4081082bbe82` (6.x, reports 6.0.21).
+Stack pin: `a8d3b6bfa977f65719f0fe761b6b758acb9f941f` (`issues/runbook`, ahead of `6.x` @
+`986c48a6` — deliberately pinned past the branch `.gitmodules` names to pick up fixes for
+[#2163](https://github.com/chipkin/cas-bacnet-stack/issues/2163),
+[#2164](https://github.com/chipkin/cas-bacnet-stack/issues/2164) and
+[#2165](https://github.com/chipkin/cas-bacnet-stack/issues/2165) before they land on `6.x`; move
+back to a `6.x` commit once they do). Reports stack version 6.0.21.
+
+## Fixed since the last pin (verified live against `a8d3b6bf`, not assumed from the closed issues)
+
+- **[#2163](https://github.com/chipkin/cas-bacnet-stack/issues/2163)** (`Device_Address_Binding`'s
+  misleading "not yet implemented" FYI) — gone. `ReadProperty(Device.Device_Address_Binding)` now
+  returns a clean 18-byte ComplexACK with zero log output.
+- **[#2164](https://github.com/chipkin/cas-bacnet-stack/issues/2164)** (`BuildArrayProperty`
+  aborting instead of erroring) and **[#2175](https://github.com/chipkin/cas-bacnet-stack/issues/2175)**
+  (`ReadPropertyMultiple` aborting the whole response on one bad property) — both closed upstream;
+  `ReadPropertyMultiple(ALL)` on the Device object returns a full 619-byte ComplexACK.
+- **[#2165](https://github.com/chipkin/cas-bacnet-stack/issues/2165)** (generic "Unable to decode
+  the APDU" logged for an already-classified rejection) — closed upstream; not independently
+  re-verified this pass (no easy way to distinguish its absence from "didn't trigger this test"),
+  but the fix landed in the same batch as #2163/#2164 and touches the same call sites documented
+  in that issue.
+- **Bonus, not previously tracked here:** the `AddTrendLogObject` log flood (item 2 below,
+  `chipkin/cas-bacnet-stack#2050`) is also gone with this pin — 0 occurrences of "Failed to set the
+  date/time" over a 12-second live run, where the old pin flooded from the very first tick. #2050
+  itself is still open upstream (likely fixed as a side effect of unrelated work in the same batch
+  of commits, not by a change that references the issue directly) - see item 2's update below.
 
 ## 1. Trend Log 1 ("Lilac") never accumulates records — `SetTrendLogStartStopTime` gap
+
+**Re-verified against the current pin (`a8d3b6bf`) — still reproduces.** `Record_Count` reads
+back `0` after 15 seconds of live polling, same as originally reported. Still open upstream
+([#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)); nothing below this line has
+changed.
 
 `BACnetStack_SetTrendLogStartStopTime`, called on Lilac (a plain `trendLog` object, not Trend Log
 Multiple), reproducibly leaves `Record_Count`/`Total_Record_Count` at `0` forever, even though:
@@ -35,7 +65,14 @@ both genuinely proven through it, live-verified this session).
 
 **Filed:** [chipkin/cas-bacnet-stack#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051).
 
-## 2. `AddTrendLogObject` causes a continuous internal log flood (same class as #2045)
+## 2. `AddTrendLogObject` causes a continuous internal log flood (same class as #2045) — appears fixed as of `a8d3b6bf`
+
+**Update:** 0 occurrences of the flood over a 12-second live run against the current pin
+(`a8d3b6bf`), where the previously pinned commit flooded from the very first `BACnetStack_Tick()`.
+The issue below is still marked open upstream — likely fixed incidentally by unrelated work in the
+same commit range rather than a change that names #2050 directly — so this is left filed rather
+than closed from this side. Original report kept below for the reproduction steps, in case this
+regresses on a future pin bump.
 
 Calling `BACnetStack_AddTrendLogObject` — by itself, independent of `SetTrendLogTypeToPolled`,
 `SetTrendLogStartStopTime`, or Trend Log Multiple — makes every `BACnetStack_Tick()` print:
@@ -79,7 +116,10 @@ a test-topology limitation, recorded honestly rather than claimed as verified.
 
 ## 4. Calendar 1 ("Cream")'s `Date_List` — inherited, pre-existing gap
 
-Same gap B-AAC's (and B-ACC's) file header already documents against stack issue #963:
+Same gap B-AAC's (and B-ACC's) file header already documents against stack issue
+[#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758) (formerly tracked as #963, which
+was closed 2026-09-13 with the remaining work split off to #1758 — update this link if you find
+another sibling example still pointing at the closed #963):
 `BACnetStack_AddScheduleExceptionEventWithCalendarReference` does not resolve a Calendar's
 `Date_List` at evaluation time, and there is no customer-facing way to populate `Date_List` at
 all. This file uses the inline `...WithCalendarEntry` exception form instead (fully functional,
