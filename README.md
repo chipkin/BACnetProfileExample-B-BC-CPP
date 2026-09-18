@@ -19,7 +19,8 @@ and ReadRange). It listens on **BACnet/IP (UDP 47808)** and claims only B-BC.
   Statement: every object, every property, and who answers it.
 
 > **Versions:** this document describes **example v1.0.0**, built and verified
-> against **CAS BACnet Stack 6.0.21** (`6.x` @ `986c48a6`), at
+> against **CAS BACnet Stack 6.0.21** (`issues/runbook` @ `a8d3b6bf`, ahead of `6.x` - see
+> `TODO.md` for why), at
 > **Protocol_Revision 26**, with the vendored `common/` helper at **v2.8.0**.
 > Running the example prints all three - if what it prints disagrees with this
 > line, trust the program and check `CHANGELOG.md`.
