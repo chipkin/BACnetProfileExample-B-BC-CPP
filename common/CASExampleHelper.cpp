@@ -227,6 +227,83 @@ CASBACnetTime HelperGetSystemTime() {
 }
 
 // ---------------------------------------------------------------------------
+// Find the primary network interface's negotiated link speed, in bits per
+// second (what the Network Port object's Link_Speed property reports - a
+// REAL, 0.0 meaning "indeterminable" per Clause 12.56.15). Same interface
+// selection as GetPrimaryIPv4 (first non-loopback, "up" IPv4 interface) -
+// deliberately not shared code with it: Windows needs a second API call
+// (GetIfEntry) keyed off the adapter's index, and POSIX needs the interface
+// NAME rather than its address, so the loop bodies diverge enough that
+// factoring out "the one interface" isn't worth it for two ~30-line
+// functions called once each, at start-up. Returns false (leaves
+// *bitsPerSecond untouched) if no interface was found or its speed could not
+// be read - the caller then reports 0.0 ("indeterminable"), which is honest,
+// not this function silently inventing a number.
+bool GetPrimaryLinkSpeedBitsPerSecond(double* bitsPerSecond) {
+#if defined(_WIN32)
+    IP_ADAPTER_INFO adapters[32];
+    ULONG len = sizeof(adapters);
+    if (GetAdaptersInfo(adapters, &len) != ERROR_SUCCESS) {
+        return false;
+    }
+    for (const IP_ADAPTER_INFO* a = adapters; a != NULL; a = a->Next) {
+        struct in_addr ipAddr;
+        if (inet_pton(AF_INET, a->IpAddressList.IpAddress.String, &ipAddr) != 1) {
+            continue;
+        }
+        const uint32_t ipN = ipAddr.s_addr;
+        if (ipN == 0 || (ipN & 0xFF) == 127) {
+            continue; // no address, or loopback - same exclusions as GetPrimaryIPv4
+        }
+        MIB_IFROW ifRow;
+        memset(&ifRow, 0, sizeof(ifRow));
+        ifRow.dwIndex = a->Index;
+        if (GetIfEntry(&ifRow) != NO_ERROR) {
+            return false;
+        }
+        *bitsPerSecond = (double)ifRow.dwSpeed; // already bits/sec on this API
+        return true;
+    }
+    return false;
+#else
+    struct ifaddrs* ifap = NULL;
+    if (getifaddrs(&ifap) != 0) {
+        return false;
+    }
+    bool found = false;
+    for (const struct ifaddrs* ifa = ifap; ifa != NULL && !found; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != AF_INET) {
+            continue;
+        }
+        if ((ifa->ifa_flags & IFF_LOOPBACK) || !(ifa->ifa_flags & IFF_UP)) {
+            continue;
+        }
+        // /sys/class/net/<iface>/speed - the kernel's own view of the negotiated
+        // link speed in Mbit/s (an ethtool query would need root on some distros
+        // and a <linux/ethtool.h> dependency this file doesn't otherwise have;
+        // the sysfs file is the same number, readable by anyone, no extra headers).
+        // Reads "-1" (or fails to open) for a link that's down or doesn't expose
+        // a speed (e.g. some virtual/tunnel interfaces) - either way, no value.
+        char path[64];
+        snprintf(path, sizeof(path), "/sys/class/net/%s/speed", ifa->ifa_name);
+        FILE* f = fopen(path, "r");
+        if (f == NULL) {
+            continue;
+        }
+        long mbps = -1;
+        const int scanned = fscanf(f, "%ld", &mbps);
+        fclose(f);
+        if (scanned == 1 && mbps > 0) {
+            *bitsPerSecond = (double)mbps * 1000000.0;
+            found = true;
+        }
+    }
+    freeifaddrs(ifap);
+    return found;
+#endif
+}
+
+// ---------------------------------------------------------------------------
 // Find the primary IPv4 interface's address and subnet mask (each 4 octets in
 // network/big-endian order, i.e. ip[0] is the first dotted octet). These feed
 // the Network Port object (IP_Address, IP_Subnet_Mask) and the local broadcast.
@@ -1880,6 +1957,10 @@ void RegisterCommonCallbacks() {
 
 bool GetLocalIPv4(uint8_t ipAddress[4], uint8_t subnetMask[4]) {
     return GetPrimaryIPv4(ipAddress, subnetMask);
+}
+
+bool GetLocalLinkSpeedBitsPerSecond(double* bitsPerSecond) {
+    return GetPrimaryLinkSpeedBitsPerSecond(bitsPerSecond);
 }
 
 void SendIAm(const uint32_t deviceInstance, const uint32_t networkPortInstance) {

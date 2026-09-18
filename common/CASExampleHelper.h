@@ -41,7 +41,7 @@ namespace CASExampleHelper {
 // version). Bump it whenever anything in common/ changes, and record the
 // change in common/CHANGELOG.md - every example in the series must then be
 // re-synced to the same common/ version.
-static const char* COMMON_VERSION = "2.8.0";
+static const char* COMMON_VERSION = "2.9.0";
 
 // Print the example's name + version, the linked CAS BACnet Stack version,
 // and the common/ helper version.
@@ -141,6 +141,14 @@ void SendIAm(uint32_t deviceInstance, uint32_t networkPortInstance);
 // IP_Subnet_Mask), and the broadcast (ip | ~mask) is the I-Am target. Returns
 // true on success; on failure the buffers are left untouched.
 bool GetLocalIPv4(uint8_t ipAddress[4], uint8_t subnetMask[4]);
+
+// Get the primary network interface's negotiated link speed in bits per
+// second - the value a Network Port object's Link_Speed property reports
+// (REAL; 0.0 means "indeterminable" per Clause 12.56.15, so a caller that
+// gets false back should report 0.0, not fabricate a number). Windows reads
+// it via GetIfEntry(); POSIX reads /sys/class/net/<iface>/speed. Returns
+// true on success; on failure *bitsPerSecond is left untouched.
+bool GetLocalLinkSpeedBitsPerSecond(double* bitsPerSecond);
 
 // --- Deferred device restart (DM-RD-B) -------------------------------------
 // Only for examples whose profile includes DM-RD-B (i.e. that register a

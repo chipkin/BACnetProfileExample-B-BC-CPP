@@ -12,6 +12,19 @@ entry here, and must then be re-copied into **every** example in the series.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the folder adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-09-17
+
+### Added
+
+- `CASExampleHelper::GetLocalLinkSpeedBitsPerSecond()` - reads the primary
+  network interface's actual negotiated link speed (Windows: `GetIfEntry()`;
+  POSIX: `/sys/class/net/<iface>/speed`), for a Network Port object's
+  `Link_Speed` property. First consumer: `BACnetProfileExample-B-BC-CPP`,
+  whose `Link_Speed` previously read back a hardcoded `0.0` because nothing
+  served it - the stack's "no callback answered" REAL-property fallback,
+  not a real "indeterminable" answer. `PROPERTY_IDENTIFIER_LINK_SPEED = 420`
+  added to `CASBACnetStackExampleConstants.h` alongside it.
+
 ## [2.8.0] - 2026-09-17
 
 ### Added

@@ -208,6 +208,15 @@ static uint8_t g_ipSubnetMask[4] = { 0, 0, 0, 0 };
 static uint8_t g_ipDefaultGateway[4] = { 0, 0, 0, 0 };
 static uint16_t g_bacnetIpUdpPort = 47808;
 
+// Network Port's Link_Speed (REAL, bits/sec; 0.0 means "indeterminable" per
+// Clause 12.56.15). Read once at start-up, same as the IP addressing above -
+// this example's link speed does not change at runtime, and re-querying it
+// on every poll would be pointless work in the Tick loop for a value that
+// never changes. Genuinely 0.0 (not just uninitialized) is a valid, honest
+// answer if CASExampleHelper::GetLocalLinkSpeedBitsPerSecond() can't
+// determine it - it is NOT this example fabricating a number either way.
+static float g_linkSpeedBitsPerSecond = 0.0f;
+
 // Analog Input 1's live present value (degrees Celsius). Starts at 21.5 and is
 // nudged by the up/down arrow keys. A real sensor would update this from
 // hardware instead.
@@ -486,6 +495,16 @@ bool GetPropertyReal(const uint32_t deviceInstance, const uint16_t objectType,
         // delays all BACnet processing. Sample the sensor on a timer/another
         // thread and just hand back the latest value from here.
         *value = g_analogInput1Value;
+        return true;
+    }
+    // Network Port "Vermilion" - Link_Speed, the negotiated speed of the
+    // physical interface this example's BACnet/IP traffic actually goes out
+    // over. Cached once at start-up into g_linkSpeedBitsPerSecond (see its
+    // declaration above for why). 0.0 ("indeterminable") is the correct,
+    // spec-honest answer when the host OS can't report a speed - not a bug.
+    if (objectType == OBJECT_TYPE_NETWORK_PORT && objectInstance == NETWORK_PORT_INSTANCE &&
+        propertyIdentifier == PROPERTY_IDENTIFIER_LINK_SPEED) {
+        *value = g_linkSpeedBitsPerSecond;
         return true;
     }
     // Analog Value 1 "Diamond" - the alarm-capable process value. Its Present_Value
@@ -1528,6 +1547,13 @@ int main(int argc, char** argv) {
     if (!CASExampleHelper::GetLocalIPv4(g_ipAddress, g_ipSubnetMask)) {
         printf("FYI: could not read a local IPv4 address; Network Port IP_Address "
                "will report 0.0.0.0.\n");
+    }
+    double linkSpeedBitsPerSecond = 0.0;
+    if (CASExampleHelper::GetLocalLinkSpeedBitsPerSecond(&linkSpeedBitsPerSecond)) {
+        g_linkSpeedBitsPerSecond = (float)linkSpeedBitsPerSecond;
+    } else {
+        printf("FYI: could not determine the local link speed; Network Port "
+               "Link_Speed will report 0.0 (indeterminable).\n");
     }
 
     // --- Register callbacks -------------------------------------------------

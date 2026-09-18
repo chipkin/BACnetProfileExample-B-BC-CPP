@@ -117,11 +117,11 @@
       "type": "Network Port",
       "instance": 1,
       "name": "Vermilion",
-      "app": ["Object_Name", "Out_Of_Service", "Network_Type", "Protocol_Level", "Changes_Pending"],
+      "app": ["Object_Name", "Out_Of_Service", "Network_Type", "Protocol_Level", "Changes_Pending", "Link_Speed"],
       "enabled": [],
       "writable": [],
       "accepted": ["Reliability"],
-      "note": "BACnet/IP; Network_Type and Protocol_Level are set from BACnetStack_AddNetworkPortObject()'s arguments (IPv4, BACnet Application) at start-up, not a GetProperty callback like the object's other app-served rows; Changes_Pending is likewise computed and answered natively by the stack's Network Port object. Reliability has no fault condition this example detects, so it is accepted at the generic default (normal)"
+      "note": "BACnet/IP; Network_Type and Protocol_Level are set from BACnetStack_AddNetworkPortObject()'s arguments (IPv4, BACnet Application) at start-up, not a GetProperty callback like the object's other app-served rows; Changes_Pending is likewise computed and answered natively by the stack's Network Port object. Reliability has no fault condition this example detects, so it is accepted at the generic default (normal). Link_Speed is read once at start-up from the host's primary network interface (CASExampleHelper::GetLocalLinkSpeedBitsPerSecond) - 0.0 if the host OS can't report one, which is the spec-correct 'indeterminable' answer, not a bug"
     },
     {
       "type": "Schedule",
