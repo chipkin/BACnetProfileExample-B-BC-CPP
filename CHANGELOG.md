@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-09-18
+
+### Changed
+
+- Stack submodule pinned to `issues/runbook` @ `a8d3b6bf` (ahead of `6.x` @
+  `986c48a6`) - see `TODO.md` for the fixes this picks up
+  (chipkin/cas-bacnet-stack#2050/#2163/#2164/#2165/#2175) and why the pin is
+  deliberately ahead of the branch `.gitmodules` names.
+
 ## [1.0.1] - 2026-09-17
 
 ### Fixed
