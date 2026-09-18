@@ -1899,27 +1899,29 @@ int main(int argc, char** argv) {
     // Record_Count from ever incrementing, live-verified with bacpypes3, even
     // with valid past Start_Time/future Stop_Time values and Enable=true - this
     // ordering avoids that.)
-    // KNOWN GAP (chipkin/cas-bacnet-stack#2051, filed this session): calling
-    // BACnetStack_SetTrendLogStartStopTime on a Trend Log object - with ANY
-    // values (unspecified, or a concrete past Start_Time/future Stop_Time that
-    // genuinely bracket "now"), in EITHER order relative to
-    // SetTrendLogTypeToPolled - reproducibly leaves Record_Count at 0 forever,
-    // confirmed live over the wire. The call itself, its documented arguments,
-    // and its wiring here are all correct customer-facing API usage; Start_Time
-    // and Stop_Time DO read back exactly as set. See TODO.md. Trend Log
-    // Multiple 1 (Magenta) below, which never calls this function, IS the
-    // working polled-accumulation + ReadRange demonstration for this example.
+    // #2051 (chipkin/cas-bacnet-stack#2051, fixed): this window used to be built
+    // with localtime_s/localtime_r, but HelperGetSystemTime() (common/CASExample
+    // Helper.cpp) returns raw time(0) and this example serves no Device
+    // UTC_Offset, so the stack's own "now" (BACnetDateTime built from
+    // GetSystemTime + UTC_Offset=0) is UTC wall-clock, not local wall-clock. On
+    // any host not in UTC, the local-time window was offset from the clock the
+    // stack actually compares against - west of UTC, Stop_Time landed BEFORE
+    // the stack's "now" so ReadyToLog's stopTimeGood check never passed and
+    // Record_Count stayed at 0 forever; east of UTC, Start_Time would fail the
+    // same way instead. Building the window from the SAME clock the stack uses
+    // (gmtime, not localtime) fixes it - Start_Time/Stop_Time now genuinely
+    // bracket the stack's own "now" on every host regardless of local time zone.
     {
         time_t nowSeconds = time(NULL);
         struct tm nowTmBuf;
         struct tm stopTmBuf;
         time_t stopSeconds = nowSeconds + 600; // 10 minutes
 #if defined(_WIN32)
-        localtime_s(&nowTmBuf, &nowSeconds);
-        localtime_s(&stopTmBuf, &stopSeconds);
+        gmtime_s(&nowTmBuf, &nowSeconds);
+        gmtime_s(&stopTmBuf, &stopSeconds);
 #else
-        localtime_r(&nowSeconds, &nowTmBuf);
-        localtime_r(&stopSeconds, &stopTmBuf);
+        gmtime_r(&nowSeconds, &nowTmBuf);
+        gmtime_r(&stopSeconds, &stopTmBuf);
 #endif
         if (!BACnetStack_SetTrendLogStartStopTime(
                 g_deviceInstance, OBJECT_TYPE_TREND_LOG, TREND_LOG_INSTANCE,
