@@ -5,7 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.1] - 2026-09-17
+
+### Fixed
+
+- **Reading the Device's `Description` aborted the connection instead of
+  returning the string.** `DEVICE_DESCRIPTION` was 286 characters, over the
+  stack's 256-character buffer on a full build - and, contrary to the
+  truncation guard's own (wrong) comment claiming this string "fits with
+  room to spare," the over-length read Aborted outright rather than being
+  truncated. Shortened to 214 characters (well under the limit, with real
+  margin) and corrected the guard's comment; it now also warns loudly if a
+  served string is ever too long again, instead of silently clipping it.
+  This was also the actual trigger for `ReadPropertyMultiple(ALL)` aborting
+  the entire Device read (see chipkin/cas-bacnet-stack#2175) - fixing it
+  here makes RPM(ALL) on the Device object succeed even before that stack
+  issue lands. (chipkin/BACnetProfileExample-B-BC-CPP#7)
+- **The Device's `Local_Date`/`Local_Time` read back `Error:
+  read-access-denied`**, even though this example claims DM-TS-B/DM-UTC-B -
+  these two properties are exactly what a client reads to confirm a time
+  sync took. The stack deliberately refuses to invent a default for either
+  (documented in `main.cpp`'s "WHAT false-WITHOUT-AN-ERROR-CODE ACTUALLY
+  DOES" comment) - the app has to actually serve them. `GetPropertyDate`/
+  `GetPropertyTime` now answer the Device object with the real wall-clock
+  local date/time, the same clock `HelperGetSystemTime()` already uses.
+  New `PROPERTY_IDENTIFIER_LOCAL_DATE`/`_LOCAL_TIME` constants in `common/`
+  2.8.0. (chipkin/BACnetProfileExample-B-BC-CPP#7)
+
+### Changed
+
+- `README.md`/`docs/PICS.md` said `Protocol_Revision 24`; the running device
+  (against the currently pinned stack) reports 26 - the stack computes this
+  value itself, so this was a docs-only correction, not a code change.
+  Updated the "Versions" banner to the current stack commit (`986c48a6`) and
+  `common/` version (2.8.0) too. (chipkin/BACnetProfileExample-B-BC-CPP#7)
+
+### Added
+
+- Synced `common/` to 2.7.0 (from `BACnetProfileExample-B-SS-CPP`): RX/TX log
+  lines now name the service, the object/property being requested, and any
+  NPDU routing destination (DNET/DADR) - live-verified against this
+  example's own SCHED-E-B remote-discovery Who-Is, which correctly showed
+  `DNET=65535`. A new `--xml` option (off by default) prints every frame as
+  a full XML block instead. See `common/CHANGELOG.md` for the decode
+  details.
 
 ### Changed
 
