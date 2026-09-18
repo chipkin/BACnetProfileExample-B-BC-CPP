@@ -155,11 +155,18 @@ static const char* DEVICE_NAME = "Rainbow";
 
 // The Device object's Description. Change it to what YOUR device actually is;
 // this string describes this tutorial.
+// Kept well under 256 chars (STACK_OPTION_MAX_CHARACTER_STRING_SIZE on a full
+// build) - see the ReturnCharacterString() comment below for why "truncate to
+// fit" is NOT a safe fallback for this string: reading a Description longer
+// than the stack's limit aborts the whole read rather than returning a
+// shortened string (chipkin/BACnetProfileExample-B-BC-CPP#7). If you lengthen
+// this, check the new length against that limit for real, on the target you
+// actually build for.
 static const char* DEVICE_DESCRIPTION =
-    "Chipkin CAS BACnet Stack example - B-BC (Building Controller) profile, the "
-    "series capstone. Demonstrates DS-RP/RPM/WP/WPM-A/B, intrinsic alarming "
-    "(AE-N-I-B / AE-ACK-B / AE-INFO-B / AE-CRL-B), SCHED-E-B, trending "
-    "(T-VMT-I-B / T-ATR-B), DM-DCC-B, DM-TS-B / DM-UTC-B, DM-RD-B, and DM-BR-B.";
+    "Chipkin CAS BACnet Stack example - B-BC (Building Controller) profile, "
+    "the series capstone. Demonstrates DS-RP/RPM/WP/WPM-A/B, intrinsic "
+    "alarming, SCHED-E-B, trending, DM-DCC-B, DM-TS-B/UTC-B, DM-RD-B, and "
+    "DM-BR-B.";
 
 // Device identity strings (read by clients, and used to populate I-Am).
 //   VENDOR_NAME - your company name; it must match VENDOR_IDENTIFIER above.
@@ -780,14 +787,22 @@ static bool ReturnCharacterString(const char* text, char* value,
                                   uint8_t* encodingType) {
     uint32_t length = (uint32_t)strlen(text);
     if (length > maxElementCount) {
-        // Truncate SILENTLY to fit the stack's buffer. maxElementCount is
-        // MAX_CHARACTER_STRING_SIZE (256 in this build), and our longest string
-        // (DEVICE_DESCRIPTION) fits with room to spare - so this never trips
-        // here. But if you build with STACK_OPTION_TARGET_EMBEDDED, that limit drops to
-        // 64, and a long Object_Name or Description would be clipped mid-word
-        // with nothing on the wire or console to tell you. If you lengthen any
-        // served string, check it against MAX_CHARACTER_STRING_SIZE for your
-        // target, or make this truncation loud.
+        // A previous version of this comment claimed a served string always
+        // fits under maxElementCount (MAX_CHARACTER_STRING_SIZE - 256 on a
+        // full build, 64 on STACK_OPTION_TARGET_EMBEDDED) "with room to
+        // spare." That was false: DEVICE_DESCRIPTION shipped at 286 chars,
+        // over the 256-char full-build limit, and the read didn't even get
+        // truncated - it Aborted outright before reaching this clamp
+        // (chipkin/BACnetProfileExample-B-BC-CPP#7). Whatever the actual
+        // on-the-wire behavior turns out to be for an over-length string, a
+        // silent truncation here is the wrong fallback for a tutorial
+        // example either way - it teaches "this is fine" when it isn't. Warn
+        // loudly instead, and keep every served string under the limit for
+        // real rather than relying on this clamp to save you.
+        printf("Warning: property value %u chars, longer than the stack's "
+               "%u-char buffer - truncating (and the actual read may fail "
+               "before this point; see issue #7).\n",
+               (unsigned)length, (unsigned)maxElementCount);
         length = maxElementCount;
     }
     memcpy(value, text, length);
@@ -903,6 +918,24 @@ bool GetPropertyCharString(const uint32_t deviceInstance, const uint16_t objectT
     return false;
 }
 
+// The Device's Local_Time / Local_Date (DM-TS-B, DM-UTC-B): the stack refuses
+// to invent a default for either of these if the app declines (see "WHAT
+// false-WITHOUT-AN-ERROR-CODE ACTUALLY DOES" above) - a device that never
+// serves them reads back Error: read-access-denied, which is exactly how a
+// client normally confirms a TimeSynchronization/UTCTimeSynchronization
+// actually took (chipkin/BACnetProfileExample-B-BC-CPP#7). This example
+// claims both BIBBs, so it has to actually answer these, not just leave the
+// stack's "declined" fallback in place. Real wall-clock local time - the
+// simplest honest answer, and consistent with HelperGetSystemTime().
+static bool GetCurrentLocalTm(struct tm* out) {
+    const time_t nowSeconds = time(NULL);
+#if defined(_WIN32)
+    return localtime_s(out, &nowSeconds) == 0;
+#else
+    return localtime_r(&nowSeconds, out) != NULL;
+#endif
+}
+
 // Ivory (File 1) - Modification_Date's Time half. Fixed at a nominal start-up
 // value; a real device would stamp this on every WriteFile.
 bool GetPropertyTime(const uint32_t deviceInstance, const uint16_t objectType,
@@ -918,6 +951,18 @@ bool GetPropertyTime(const uint32_t deviceInstance, const uint16_t objectType,
     if (objectType == OBJECT_TYPE_FILE && objectInstance == FILE_INSTANCE &&
         propertyIdentifier == PROPERTY_IDENTIFIER_MODIFICATION_DATE) {
         *hour = 0; *minute = 0; *second = 0; *hundredthSecond = 0;
+        return true;
+    }
+    if (objectType == OBJECT_TYPE_DEVICE && objectInstance == g_deviceInstance &&
+        propertyIdentifier == PROPERTY_IDENTIFIER_LOCAL_TIME) {
+        struct tm nowTm;
+        if (!GetCurrentLocalTm(&nowTm)) {
+            return false;
+        }
+        *hour = (uint8_t)nowTm.tm_hour;
+        *minute = (uint8_t)nowTm.tm_min;
+        *second = (uint8_t)nowTm.tm_sec;
+        *hundredthSecond = 0;
         return true;
     }
     return false;
@@ -938,6 +983,20 @@ bool GetPropertyDate(const uint32_t deviceInstance, const uint16_t objectType,
     if (objectType == OBJECT_TYPE_FILE && objectInstance == FILE_INSTANCE &&
         propertyIdentifier == PROPERTY_IDENTIFIER_MODIFICATION_DATE) {
         *yearMinus1900 = 126; *month = 1; *day = 1; *weekday = 4; // nominal 2026-01-01 Thu
+        return true;
+    }
+    if (objectType == OBJECT_TYPE_DEVICE && objectInstance == g_deviceInstance &&
+        propertyIdentifier == PROPERTY_IDENTIFIER_LOCAL_DATE) {
+        struct tm nowTm;
+        if (!GetCurrentLocalTm(&nowTm)) {
+            return false;
+        }
+        *yearMinus1900 = (uint8_t)nowTm.tm_year;
+        *month = (uint8_t)(nowTm.tm_mon + 1);
+        *day = (uint8_t)nowTm.tm_mday;
+        // struct tm's tm_wday is 0=Sunday..6=Saturday; BACnet's BACnetWeekday
+        // is 1=Monday..7=Sunday (ANSI/ASHRAE 135 Clause 21).
+        *weekday = (uint8_t)(((nowTm.tm_wday + 6) % 7) + 1);
         return true;
     }
     return false;

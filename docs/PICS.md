@@ -23,7 +23,7 @@ see [README.md](../README.md).
 | **Application Software Version** | 1.0.0 |
 | **Firmware Revision** | 1.0.0 |
 | **BACnet Protocol Version** | 1 |
-| **BACnet Protocol Revision** | 24 |
+| **BACnet Protocol Revision** | 26 |
 
 **Product Description:** a BACnet/IP Building Controller built on the CAS
 BACnet Stack. It presents fifteen objects spanning read-only sensors,

@@ -12,6 +12,18 @@ entry here, and must then be re-copied into **every** example in the series.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the folder adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-09-17
+
+### Added
+
+- `PROPERTY_IDENTIFIER_LOCAL_DATE = 56` and `PROPERTY_IDENTIFIER_LOCAL_TIME = 57`
+  in `CASBACnetStackExampleConstants.h`. First consumer:
+  `BACnetProfileExample-B-BC-CPP` (chipkin/BACnetProfileExample-B-BC-CPP#7) -
+  a device claiming DM-TS-B/DM-UTC-B needs to actually serve the Device's
+  `Local_Date`/`Local_Time` (the properties a client reads back to confirm a
+  time sync took), not leave the stack's "callback declined, no default"
+  `read-access-denied` fallback in place.
+
 ## [2.7.0] - 2026-09-17
 
 ### Added

@@ -19,8 +19,8 @@ and ReadRange). It listens on **BACnet/IP (UDP 47808)** and claims only B-BC.
   Statement: every object, every property, and who answers it.
 
 > **Versions:** this document describes **example v1.0.0**, built and verified
-> against **CAS BACnet Stack 6.0.21** (`6.x` @ `abd4cee1`), at
-> **Protocol_Revision 24**, with the vendored `common/` helper at **v2.5.0**.
+> against **CAS BACnet Stack 6.0.21** (`6.x` @ `986c48a6`), at
+> **Protocol_Revision 26**, with the vendored `common/` helper at **v2.8.0**.
 > Running the example prints all three - if what it prints disagrees with this
 > line, trust the program and check `CHANGELOG.md`.
 
@@ -274,7 +274,7 @@ or any BACnet client:
 2. **Object model** - fifteen objects incl. Analog Value "Diamond", Notification
    Class "Crimson", Schedule "Saffron", Calendar "Cream", File "Ivory", Trend Log
    "Lilac" and Trend Log Multiple "Magenta". `Object_List` lists them all;
-   `Protocol_Revision` = 24. *Verified live.*
+   `Protocol_Revision` = 26. *Verified live.*
 3. **Command an output (F-OUTPUTS)** - WriteProperty Analog Output 1
    (Chartreuse) `Present_Value` at a priority; read it back. *Verified live.*
 4. **Fire an alarm** - WriteProperty Diamond `Present_Value` = `95`; read
