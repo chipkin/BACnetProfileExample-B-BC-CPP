@@ -152,8 +152,10 @@ a Value object and it silently stays non-commandable.
 ## Who serves what: Trend Log Multiple "Magenta"
 
 Magenta is the strongest object to trace end-to-end in this example: it is
-the one the series' headline new feature (trending) actually proves live,
-unlike Lilac (see [Known gaps](#known-gaps-in-this-example)).
+the one the series' headline new feature (trending) was first proven live on.
+Lilac (Trend Log 1, T-VMT-I-B / T-ATR-B) also accumulates records correctly
+now that its Start_Time/Stop_Time window is built from the same clock the
+stack compares against (fixed, cas-bacnet-stack#2051).
 
 | Property | Served by | How |
 |---|---|---|
@@ -176,23 +178,7 @@ carried here in full because they change what a client should expect, not
 because they are cosmetic. See [TODO.md](TODO.md) for the complete writeup
 with reproduction steps.
 
-1. **Trend Log 1 ("Lilac") never accumulates records.**
-   `BACnetStack_SetTrendLogStartStopTime`, called on Lilac (a plain Trend Log,
-   not Trend Log Multiple), reproducibly leaves `Record_Count` /
-   `Total_Record_Count` at `0` forever - regardless of whether `Start_Time` /
-   `Stop_Time` are left unspecified or set to concrete values that genuinely
-   bracket "now", and regardless of call order relative to
-   `SetTrendLogTypeToPolled`. `Enable`, `Start_Time` and `Stop_Time` all read
-   back correctly; logging simply never happens. The only configuration that
-   logs is **not calling `SetTrendLogStartStopTime` at all** - exactly Trend
-   Log Multiple 1 ("Magenta")'s configuration, which is otherwise identical
-   and accumulates records normally. This example still calls
-   `SetTrendLogStartStopTime` on Lilac on purpose - it is correct, documented,
-   customer-facing API usage worth demonstrating - but its `Record_Count`
-   will read `0` in any live demo. **Trend Log Multiple 1 ("Magenta") is this
-   example's working polled-accumulation + ReadRange demonstration.** Filed as
-   [chipkin/cas-bacnet-stack#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051).
-2. **`AddTrendLogObject` causes a continuous internal log flood.** Calling it
+1. **`AddTrendLogObject` causes a continuous internal log flood.** Calling it
    - independent of `SetTrendLogTypeToPolled`, `SetTrendLogStartStopTime`, or
    Trend Log Multiple - makes every `BACnetStack_Tick()` print two `Error:`
    lines (`BACnetDateTime::operator =() ... Failed to set the date/time`)
@@ -203,7 +189,7 @@ with reproduction steps.
    same class of defect as `AddEventLogObject`'s
    [#2045](https://github.com/chipkin/cas-bacnet-stack/issues/2045). Filed as
    [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050).
-3. **Schedule 1's SCHED-E-B remote write is wired correctly but not
+2. **Schedule 1's SCHED-E-B remote write is wired correctly but not
    cross-instance wire-verified.** `List_Of_Object_Property_References` has
    two entries - each `AddScheduleObjectPropertyReference` call APPENDS - a
    local one at Chartreuse and a remote one at a peer device's Analog Output 1
@@ -216,7 +202,7 @@ with reproduction steps.
    Binding cannot resolve the peer in that topology. Verifying this for real
    needs two hosts (or containers/VMs) sharing port 47808, or a BBMD relaying
    between the two ports.
-4. **Calendar 1 ("Cream")'s `Date_List` cannot be populated.** There is no
+3. **Calendar 1 ("Cream")'s `Date_List` cannot be populated.** There is no
    customer-facing export or callback to populate a Calendar object's
    `Date_List` (cas-bacnet-stack issue #963) - inherited from every prior
    example in the series that carries a Calendar. Schedule 1's one-off
@@ -246,8 +232,7 @@ rather than against "it looked fine in the explorer":
    and confirm `Event_State` transitions and a notification reaches Crimson's
    recipients.
 6. Wait a few seconds and ReadRange Magenta's `Log_Buffer`; confirm
-   `Record_Count` climbs. Do **not** expect Lilac's `Record_Count` to move -
-   see [Known gaps](#known-gaps-in-this-example).
+   `Record_Count` climbs. Lilac's `Record_Count` should climb too.
 
 ### Keeping the PICS honest
 
@@ -282,10 +267,9 @@ in `accepted`, comes out as a ⚠ row - that is a defect, not a feature.
 | Symptom | Cause / fix |
 |---------|-------------|
 | On start-up the app prints a wall of red `Error:` lines but the device works | **Expected — mostly not your bug.** Three benign sources: (1) the device receives its **own** broadcast I-Am and logs a decode cascade - any BACnet/IP device that listens for broadcasts hears itself; (2) a one-time *"UUID has not been set..."* BACnet/SC notice, since these IP-only examples never configure that datalink; (3) once trending starts, a **continuous** `BACnetDateTime::operator =()` flood from `AddTrendLogObject` alone - [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050), non-fatal, does not stop the device working. |
-| Reading Trend Log 1 ("Lilac")'s `Record_Count` always returns `0` | **Expected — a filed stack defect, not your bug.** See [Known gaps item 1](#known-gaps-in-this-example) ([#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)). Use Trend Log Multiple 1 ("Magenta") instead. |
 | A ReadProperty of `Log_Buffer` on either Trend Log returns `Error(OBJECT, READ_ACCESS_DENIED)` | **Expected — this property is ReadRange-only.** Use ReadRange (`RangeByPosition`), not ReadProperty. |
-| Schedule 1's remote (SCHED-E-B) write never reaches the peer | Either no peer is running at `REMOTE_DEVICE_INSTANCE` (389002 by default), or the peer is on a different UDP port on the same host - broadcast Who-Is/I-Am does not cross ports, so Device Address Binding cannot resolve it. See [Known gaps item 3](#known-gaps-in-this-example). |
-| Calendar 1 ("Cream")'s `Date_List` reads back empty and `Present_Value` is always `false` | **Expected — inherited stack gap #963.** See [Known gaps item 4](#known-gaps-in-this-example). |
+| Schedule 1's remote (SCHED-E-B) write never reaches the peer | Either no peer is running at `REMOTE_DEVICE_INSTANCE` (389002 by default), or the peer is on a different UDP port on the same host - broadcast Who-Is/I-Am does not cross ports, so Device Address Binding cannot resolve it. See [Known gaps item 2](#known-gaps-in-this-example). |
+| Calendar 1 ("Cream")'s `Date_List` reads back empty and `Present_Value` is always `false` | **Expected — inherited stack gap #963.** See [Known gaps item 3](#known-gaps-in-this-example). |
 | An optional property you added a callback branch for reads back `Error: unknown-property` | You served it in a `GetProperty*` callback but never called `BACnetStack_SetPropertyEnabled` for it. The stack checks whether a property is enabled *before* calling your callback. This example shipped exactly this bug for the Device's `Description` - see [Adding an object](#adding-an-object-read-this-before-you-copy-any-pattern-in-this-file). |
 | CMake error: *"CAS BACnet Stack adapter not found under: ..."* | Submodules not initialized. Run `git submodule update --init --recursive` (or pass `-D CAS_STACK_DIR=...`). |
 | `CASBACnetStackDLL.h: No such file or directory` | Same - submodules not checked out. |
