@@ -20,7 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GetAPIPatchVersion()`/`GetAPIBuildVersion()` (the same 4 calls
   `common/CASExampleHelper.cpp`'s `PrintVersion()` already uses for the
   startup banner), populated once right after `LoadBACnetFunctions()`
-  succeeds.
+  succeeds. Verified with a real ReadProperty against the running device
+  (`bacpypes3`): `Application_Software_Version = "1.0.3"`,
+  `Firmware_Revision = "6.0.21.0"` - both now match the actual running build
+  instead of the stale hardcoded string.
 
 ## [1.0.2] - 2026-09-18
 
