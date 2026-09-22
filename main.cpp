@@ -104,6 +104,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <string>
 #include <time.h> // time(), localtime_[sr]() - the SCHED-I-B demo-advance key (see KeyCommand::DemoAdvance)
 
 #if defined(_WIN32)
@@ -118,7 +119,7 @@ using namespace CASBACnetStackExampleConstants;
 // 1. Example + device configuration
 // -----------------------------------------------------------------------------
 static const char* APP_NAME = "BACnet B-BC (Building Controller) Example - C++";
-static const char* APP_VERSION = "1.0.2";
+static const char* APP_VERSION = "1.0.3";
 
 // The device instance. BACnet requires this to be configurable, so it defaults
 // to 389005 and can be overridden on the command line with --deviceID. Keep it
@@ -183,10 +184,16 @@ static const char* MODEL_NAME = "CAS BACnet Stack Example - B-BC";
 // not a security boundary.
 static const char* DCC_PASSWORD = "";  // "" = no password required
 
-// FIRMWARE_REVISION / APPLICATION_SOFTWARE_VERSION - your real versions. Wire
-// them to your build rather than hard-coding a number that will go stale.
-static const char* FIRMWARE_REVISION = "1.0.0";
-static const char* APPLICATION_SOFTWARE_VERSION = "1.0.0";
+// Firmware_Revision (Device object property 44) reflects the underlying CAS
+// BACnet Stack's real version, not this example's own. It is populated once
+// in main(), right after LoadBACnetFunctions() succeeds (the version getters
+// it calls are themselves loaded by that call), from
+// BACnetStack_GetAPIMajorVersion()/GetAPIMinorVersion()/GetAPIPatchVersion()/
+// GetAPIBuildVersion() - the same 4 calls common/CASExampleHelper.cpp's
+// PrintVersion() uses for the startup banner. Application_Software_Version
+// (property 12) is this example's own version and just returns APP_VERSION
+// directly - see its use in the property-read switch below.
+static std::string g_firmwareRevision;
 
 // The sensor objects (all instance 1) and their colour names.
 static const uint32_t ANALOG_INPUT_INSTANCE = 1;       // "Bronze"
@@ -926,9 +933,9 @@ bool GetPropertyCharString(const uint32_t deviceInstance, const uint16_t objectT
             case PROPERTY_IDENTIFIER_MODEL_NAME:
                 return ReturnCharacterString(MODEL_NAME, value, valueElementCount, maxElementCount, encodingType);
             case PROPERTY_IDENTIFIER_FIRMWARE_REVISION:
-                return ReturnCharacterString(FIRMWARE_REVISION, value, valueElementCount, maxElementCount, encodingType);
+                return ReturnCharacterString(g_firmwareRevision.c_str(), value, valueElementCount, maxElementCount, encodingType);
             case PROPERTY_IDENTIFIER_APPLICATION_SOFTWARE_VERSION:
-                return ReturnCharacterString(APPLICATION_SOFTWARE_VERSION, value, valueElementCount, maxElementCount, encodingType);
+                return ReturnCharacterString(APP_VERSION, value, valueElementCount, maxElementCount, encodingType);
             default:
                 break;
         }
@@ -1524,6 +1531,19 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Error: failed to load the CAS BACnet Stack: %s\n",
                 CASBACnetStackAdapter_LastError());
         return 1;
+    }
+
+    // g_firmwareRevision (Device object property 44) - see its own doc comment
+    // above for why this is the STACK's version, not this example's own
+    // (that's Application_Software_Version/APP_VERSION instead). Must happen
+    // after LoadBACnetFunctions() (these getters ARE some of the functions it
+    // loads) and before the Device object is ever readable.
+    {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%u.%u.%u.%u",
+                 BACnetStack_GetAPIMajorVersion(), BACnetStack_GetAPIMinorVersion(),
+                 BACnetStack_GetAPIPatchVersion(), BACnetStack_GetAPIBuildVersion());
+        g_firmwareRevision = buf;
     }
 
     // --- Command line + version --------------------------------------------
