@@ -85,13 +85,12 @@ Input 1, `s` advance Schedule 1 (Saffron) to a transition right now.
   drive a Trend Log; the stack stores and serves almost everything (`Enable`,
   `Buffer_Size`, `Log_Buffer`, `Record_Count`, etc.) - only `Object_Name`
   needs an app callback. `Log_Buffer` is **ReadRange-only** (a plain
-  ReadProperty is rejected). **KNOWN STACK DEFECT:** calling
-  `SetTrendLogStartStopTime` on a Trend Log (not Trend Log Multiple)
-  reproducibly blocks `Record_Count` from ever incrementing - filed as
-  [cas-bacnet-stack#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051).
-  Don't "fix" this by silently dropping the call from Lilac - it demonstrates
-  correct API usage on purpose; Magenta (which never calls it) is the working
-  accumulation demo. Older stack pins also flooded the log from
+  ReadProperty is rejected). `SetTrendLogStartStopTime`'s Start_Time/Stop_Time
+  window MUST be built from the same clock the stack compares its own "now"
+  against (UTC, via `gmtime`/`gmtime_s`) - not `localtime`/`localtime_s`,
+  which silently blocks `Record_Count` from ever incrementing on any host not
+  in UTC (fixed, [cas-bacnet-stack#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)).
+  Older stack pins also flooded the log from
   `AddTrendLogObject` alone
   ([#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050), same
   class as B-ACC's #2045 for Event Log). That's gone on 6.0.22; if it comes
@@ -110,7 +109,7 @@ Input 1, `s` advance Schedule 1 (Saffron) to a transition right now.
   unicast I-Am so the DAB resolves it. The write skipped at startup, before
   the peer is bound, is never re-sent. That's stack gap
   [#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343), not a
-  code bug. See TODO.md item 3.
+  code bug. See TODO.md item 2.
 - Outputs are **commandable**: store the 16-slot `Priority_Array` +
   `Relinquish_Default` in the app (the `Commandable` struct); let the stack
   resolve `Present_Value`. Writes land via the `SetProperty*` callbacks (value)
@@ -152,7 +151,7 @@ There are no unit tests; verification is behavioural:
    recipient.
 7. **Trending**: wait a few seconds, then ReadRange Trend Log Multiple 1
    "Magenta"'s `Log_Buffer`; confirm `Record_Count` climbs and records
-   decode. Do not expect Lilac's `Record_Count` to move - see #2051 above.
+   decode. Trend Log 1 "Lilac"'s `Record_Count` should climb too.
 8. **Backup**: AtomicWriteFile then AtomicReadFile against File 1 "Ivory";
    round-trip the bytes; drive ReinitializeDevice through
    STARTBACKUP/ENDBACKUP/STARTRESTORE/ENDRESTORE.
