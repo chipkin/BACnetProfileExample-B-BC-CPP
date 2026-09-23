@@ -31,11 +31,11 @@ per-field note on each saying what to change it to. That block is the
 authoritative checklist; it is in the source rather than here so it cannot be
 skipped by someone who only reads the code.
 
-**THIS IS THE ONE THAT WILL BITE YOU.** `DEVICE_NAME` ("Rainbow") is a
+**THIS IS THE ONE THAT WILL BITE YOU.** `DEVICE_NAME` ("Chipkin Example B-BC") is a
 **compile-time constant**, but `Object_Name` must be unique across the whole
 BACnet internetwork. The device instance is runtime-configurable with
 `--deviceID`, so it is easy to ship two units, configure their instances
-correctly, and still have both announce `Object_Name` `"Rainbow"` - a spec
+correctly, and still have both announce `Object_Name` `"Chipkin Example B-BC"` - a spec
 violation and a hard BTL failure. In a real product `Object_Name` must be
 per-unit configurable too: derive it from a serial number, DIP switches, a
 config file, or add a `--deviceName` argument.
@@ -189,22 +189,26 @@ with reproduction steps.
    same class of defect as `AddEventLogObject`'s
    [#2045](https://github.com/chipkin/cas-bacnet-stack/issues/2045). Filed as
    [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050).
-2. **Schedule 1's SCHED-E-B remote write is wired correctly but not
-   cross-instance wire-verified.** `List_Of_Object_Property_References` has
-   two entries - each `AddScheduleObjectPropertyReference` call APPENDS - a
-   local one at Chartreuse and a remote one at a peer device's Analog Output 1
-   (default instance 389002). The remote reference's mechanism (a
-   `refDeviceInstance` other than this device's own, which starts the stack's
-   Device Address Binding for that instance) is correct, documented API
-   usage. It was **not** wire-verified end-to-end: two example instances on
-   one host had to run on different UDP ports to avoid a bind conflict, and
-   BACnet/IP broadcast Who-Is/I-Am does not cross ports, so Device Address
-   Binding cannot resolve the peer in that topology. Verifying this for real
-   needs two hosts (or containers/VMs) sharing port 47808, or a BBMD relaying
-   between the two ports.
+   **Fixed on the current pin (6.0.22):** no flood in a live run. Kept here in
+   case it comes back on a future pin.
+2. **Schedule 1's SCHED-E-B remote write works, but the first write can be
+   lost at startup.** `List_Of_Object_Property_References` has two entries,
+   because each `AddScheduleObjectPropertyReference` call APPENDS: a local one
+   at Chartreuse and a remote one at a peer device's Analog Output 1 (default
+   instance 389002). Verified on the wire on 6.0.22 with
+   `tests/sched_e_b_remote_peer.py`. The peer sends B-BC a unicast I-Am, so
+   Device Address Binding resolves it without a BBMD, even with both on one
+   host on different ports. It then changes Schedule 1's `Schedule_Default`,
+   and B-BC sends `WriteProperty Analog_Output 1.Present_Value` @ priority 8
+   to the peer, which SimpleACKs. **Stack gap:** the very first evaluation at
+   startup runs before the peer is bound, so the stack logs *"not resolved in
+   DAB - skipping the external write"* and never re-sends that value once the
+   peer binds
+   ([#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)). The
+   remote target catches up at the Schedule's next `Present_Value` change.
 3. **Calendar 1 ("Cream")'s `Date_List` cannot be populated.** There is no
    customer-facing export or callback to populate a Calendar object's
-   `Date_List` (cas-bacnet-stack issue #963) - inherited from every prior
+   `Date_List` (cas-bacnet-stack issue #1758) - inherited from every prior
    example in the series that carries a Calendar. Schedule 1's one-off
    exception uses an inline calendar-date entry
    (`AddScheduleExceptionEventWithCalendarEntry`) instead of a reference to
@@ -266,10 +270,10 @@ in `accepted`, comes out as a ⚠ row - that is a defect, not a feature.
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| On start-up the app prints a wall of red `Error:` lines but the device works | **Expected — mostly not your bug.** Three benign sources: (1) the device receives its **own** broadcast I-Am and logs a decode cascade - any BACnet/IP device that listens for broadcasts hears itself; (2) a one-time *"UUID has not been set..."* BACnet/SC notice, since these IP-only examples never configure that datalink; (3) once trending starts, a **continuous** `BACnetDateTime::operator =()` flood from `AddTrendLogObject` alone - [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050), non-fatal, does not stop the device working. |
+| On start-up the app prints a wall of red `Error:` lines but the device works | **Expected — mostly not your bug.** Three benign sources: (1) the device receives its **own** broadcast I-Am and logs a decode cascade - any BACnet/IP device that listens for broadcasts hears itself; (2) a one-time *"UUID has not been set..."* BACnet/SC notice, since these IP-only examples never configure that datalink - [#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341); (3) on stack pins older than 6.0.22 only, a **continuous** `BACnetDateTime::operator =()` flood from `AddTrendLogObject` alone - [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050), non-fatal, does not stop the device working. |
 | A ReadProperty of `Log_Buffer` on either Trend Log returns `Error(OBJECT, READ_ACCESS_DENIED)` | **Expected — this property is ReadRange-only.** Use ReadRange (`RangeByPosition`), not ReadProperty. |
-| Schedule 1's remote (SCHED-E-B) write never reaches the peer | Either no peer is running at `REMOTE_DEVICE_INSTANCE` (389002 by default), or the peer is on a different UDP port on the same host - broadcast Who-Is/I-Am does not cross ports, so Device Address Binding cannot resolve it. See [Known gaps item 2](#known-gaps-in-this-example). |
-| Calendar 1 ("Cream")'s `Date_List` reads back empty and `Present_Value` is always `false` | **Expected — inherited stack gap #963.** See [Known gaps item 3](#known-gaps-in-this-example). |
+| Schedule 1's remote (SCHED-E-B) write never reaches the peer | Either no peer is running at `REMOTE_DEVICE_INSTANCE` (389002 by default), or the peer is on a different UDP port on the same host - broadcast Who-Is/I-Am does not cross ports, so Device Address Binding cannot resolve it (`tests/sched_e_b_remote_peer.py` works around this with a unicast I-Am). Even when bound, the write made at startup, before binding, is dropped and never re-sent ([#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)). See [Known gaps item 2](#known-gaps-in-this-example). |
+| Calendar 1 ("Cream")'s `Date_List` reads back empty and `Present_Value` is always `false` | **Expected — inherited stack gap [#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758).** See [Known gaps item 3](#known-gaps-in-this-example). |
 | An optional property you added a callback branch for reads back `Error: unknown-property` | You served it in a `GetProperty*` callback but never called `BACnetStack_SetPropertyEnabled` for it. The stack checks whether a property is enabled *before* calling your callback. This example shipped exactly this bug for the Device's `Description` - see [Adding an object](#adding-an-object-read-this-before-you-copy-any-pattern-in-this-file). |
 | CMake error: *"CAS BACnet Stack adapter not found under: ..."* | Submodules not initialized. Run `git submodule update --init --recursive` (or pass `-D CAS_STACK_DIR=...`). |
 | `CASBACnetStackDLL.h: No such file or directory` | Same - submodules not checked out. |

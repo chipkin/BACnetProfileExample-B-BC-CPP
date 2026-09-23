@@ -75,7 +75,7 @@ Input 1, `s` advance Schedule 1 (Saffron) to a transition right now.
 
 ## Conventions
 
-- Device is named "Rainbow"; objects use the series' colour names; vendor id 389.
+- Device is named "Chipkin Example B-BC"; objects use the series' colour names; vendor id 389.
 - Implement the B-BC services the stack supports; expose **every required
   property** of each object for Protocol_Revision 24. Anything B-BC requires
   that is NOT implemented must be listed in [TODO.md](TODO.md) and
@@ -90,18 +90,26 @@ Input 1, `s` advance Schedule 1 (Saffron) to a transition right now.
   against (UTC, via `gmtime`/`gmtime_s`) - not `localtime`/`localtime_s`,
   which silently blocks `Record_Count` from ever incrementing on any host not
   in UTC (fixed, [cas-bacnet-stack#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)).
-  Also, `AddTrendLogObject` alone triggers a non-fatal internal log flood
+  Older stack pins also flooded the log from
+  `AddTrendLogObject` alone
   ([#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050), same
-  class as B-ACC's #2045 for Event Log) - do not treat flood output as a new
-  bug without checking #2050/#2045 first.
+  class as B-ACC's #2045 for Event Log). That's gone on 6.0.22; if it comes
+  back, check #2050/#2045 before treating it as a new bug.
+- **Startup `UUID has not been set` error:** a single
+  `BACnetDataLinkSC::Loop() ... UUID has not been set` line at startup is a
+  harmless stack log defect
+  ([cas-bacnet-stack#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341)).
+  This example never uses BACnet/SC; don't set a UUID to silence it.
 - **SCHED-E-B:** `BACnetStack_AddScheduleObjectPropertyReference` APPENDS
   every call - pass a `refDeviceInstance` other than this device's own to add
   a REMOTE target (this starts the stack's Device Address Binding for that
-  instance). Cross-instance wire testing on one host needs either the same
-  UDP port shared across processes (impossible - one bind per port) or a
-  BBMD; two local instances on different ports cannot discover each other by
-  broadcast. See TODO.md item 3 before assuming a remote-write test failure
-  is a code bug.
+  instance). Two local instances on different ports can't discover each
+  other by broadcast. To wire-test the remote write on one host, run
+  `tests/sched_e_b_remote_peer.py`: it plays device 389002 and sends a
+  unicast I-Am so the DAB resolves it. The write skipped at startup, before
+  the peer is bound, is never re-sent. That's stack gap
+  [#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343), not a
+  code bug. See TODO.md item 2.
 - Outputs are **commandable**: store the 16-slot `Priority_Array` +
   `Relinquish_Default` in the app (the `Commandable` struct); let the stack
   resolve `Present_Value`. Writes land via the `SetProperty*` callbacks (value)
@@ -155,7 +163,8 @@ There are no unit tests; verification is behavioural:
     BACnetProfileExample-B-BC-CPP` from the series root) and confirm no row
     comes out flagged with ⚠.
 
-Verification is manual (no in-repo test suite ships).
+Verification is manual (no in-repo test suite ships). `tests/` holds ad hoc
+bacpypes3 helpers for checks that need a second device.
 
 ## Releasing
 

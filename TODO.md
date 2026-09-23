@@ -1,13 +1,16 @@
 # TODO — known gaps (all verified against the pinned stack source and/or the wire, not assumed)
 
-Stack pin: `a8d3b6bfa977f65719f0fe761b6b758acb9f941f` (`issues/runbook`, ahead of `6.x` @
-`986c48a6` — deliberately pinned past the branch `.gitmodules` names to pick up fixes for
-[#2163](https://github.com/chipkin/cas-bacnet-stack/issues/2163),
-[#2164](https://github.com/chipkin/cas-bacnet-stack/issues/2164) and
-[#2165](https://github.com/chipkin/cas-bacnet-stack/issues/2165) before they land on `6.x`; move
-back to a `6.x` commit once they do). Reports stack version 6.0.21.
+Stack pin: `22ac3c986d3a1c46028527d356ddd80673715bf6` (`6.x`, release 6.0.22, merged 2026-09-22).
+The example is back on the `6.x` branch named in `.gitmodules`. The previous pin (`a8d3b6bf` on
+`issues/runbook`) was only there to pick up fixes for #2163, #2164 and #2165 early, and those
+fixes are now on `6.x`. Every item below was re-checked live against `22ac3c98`.
 
-## Fixed since the last pin (verified live against `a8d3b6bf`, not assumed from the closed issues)
+Each open item has a tracking issue in this repo:
+[#14](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/14) (item 3),
+[#15](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/15) (item 6),
+[#16](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/16) (item 7).
+
+## Fixed on earlier pins (verified live against `a8d3b6bf`, re-checked on `22ac3c98`)
 
 - **[#2163](https://github.com/chipkin/cas-bacnet-stack/issues/2163)** (`Device_Address_Binding`'s
   misleading "not yet implemented" FYI) — gone. `ReadProperty(Device.Device_Address_Binding)` now
@@ -21,24 +24,27 @@ back to a `6.x` commit once they do). Reports stack version 6.0.21.
   re-verified this pass (no easy way to distinguish its absence from "didn't trigger this test"),
   but the fix landed in the same batch as #2163/#2164 and touches the same call sites documented
   in that issue.
-- **Bonus, not previously tracked here:** the `AddTrendLogObject` log flood (item 2 below,
+- **Bonus, not previously tracked here:** the `AddTrendLogObject` log flood (item 1 below,
   `chipkin/cas-bacnet-stack#2050`) is also gone with this pin — 0 occurrences of "Failed to set the
   date/time" over a 12-second live run, where the old pin flooded from the very first tick. #2050
   itself is still open upstream (likely fixed as a side effect of unrelated work in the same batch
-  of commits, not by a change that references the issue directly) - see item 2's update below.
+  of commits, not by a change that references the issue directly) - see item 1's update below.
 - **[#2178](https://github.com/chipkin/cas-bacnet-stack/issues/2178)** (`Schedule.Weekly_Schedule`
   and `Network_Port.IP_DNS_Server` both Aborting instead of returning a value/Error) — fixed,
-  closed. `IP_DNS_Server` no longer Aborts, but now surfaces a narrower gap of its own — see item 7
+  closed. `IP_DNS_Server` no longer Aborts, but now surfaces a narrower gap of its own — see item 6
   (`chipkin/cas-bacnet-stack#2196`).
+- **[#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)** (Trend Log 1 "Lilac"'s
+  `Record_Count` stuck at 0) — **not a stack defect.** The example built the
+  `SetTrendLogStartStopTime` window from local time, but the stack compares it against UTC, so
+  off-UTC hosts never logged. Fixed in this repo (`gmtime`, #9). Re-verified on `22ac3c98`.
 
-## 1. `AddTrendLogObject` causes a continuous internal log flood (same class as #2045) — appears fixed as of `a8d3b6bf`
+## 1. `AddTrendLogObject` causes a continuous internal log flood (same class as #2045) — fixed (regression note only)
 
-**Update:** 0 occurrences of the flood over a 12-second live run against the current pin
-(`a8d3b6bf`), where the previously pinned commit flooded from the very first `BACnetStack_Tick()`.
-The issue below is still marked open upstream — likely fixed incidentally by unrelated work in the
-same commit range rather than a change that names #2050 directly — so this is left filed rather
-than closed from this side. Original report kept below for the reproduction steps, in case this
-regresses on a future pin bump.
+**Fixed.** 0 occurrences of the flood over a ~30-second live run against `22ac3c98` (6.0.22). It
+was already gone on `a8d3b6bf`. #2050 is still open upstream (see the re-verification comment
+there) because no single commit names it. Tracked to closure by
+[#13](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/13). The original report is
+kept below in case it regresses on a future pin.
 
 Calling `BACnetStack_AddTrendLogObject` — by itself, independent of `SetTrendLogTypeToPolled`,
 `SetTrendLogStartStopTime`, or Trend Log Multiple — makes every `BACnetStack_Tick()` print:
@@ -61,24 +67,33 @@ looks like noisy internal logging rather than a functional break, matching #2045
 
 **Filed:** [chipkin/cas-bacnet-stack#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050).
 
-## 2. SCHED-E-B remote fan-out — wired correctly, cross-instance wire test not possible on one host without BBMD
+## 2. SCHED-E-B remote fan-out — wire-verified; the startup write is dropped before binding
 
-Schedule 1 ("Saffron")'s `List_Of_Object_Property_References` has two entries:
-`BACnetStack_AddScheduleObjectPropertyReference` is called once with `refDeviceInstance =
-g_deviceInstance` (local, Chartreuse) and once with `refDeviceInstance = REMOTE_DEVICE_INSTANCE`
-(389002, a peer's Analog Output 1) — each call APPENDS per the stack header's own doc comment, so
-Saffron fans every transition out to both. The local reference's mechanism is proven (Schedule's
-existing SCHED-I-B write to Chartreuse, inherited from B-AAC, works). The remote reference is
-correct, documented API usage (`refDeviceInstance` other than the owning device is explicitly the
-documented way to name a remote target, and the header states it starts the stack's own Device
-Address Binding for that instance) but was **not** wire-verified end-to-end this session: this
-example and a peer instance (`BACnetProfileExample-B-SA-CPP`) were each run on a different UDP
-port on the same host to avoid a bind conflict (two processes cannot share one port), which means
-their broadcast Who-Is/I-Am traffic does not reach each other (BACnet/IP broadcast is scoped to
-the port it is sent to) — so Device Address Binding cannot resolve the peer in this topology.
-Verifying this for real needs either two separate hosts (or containers/VMs) sharing port 47808, or
-a BBMD relaying between the two ports — both out of scope for this session's time. Not a defect;
-a test-topology limitation, recorded honestly rather than claimed as verified.
+**Verified on the wire against `22ac3c98` (6.0.22)** — closes
+[#6](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/6).
+
+Schedule 1 ("Saffron")'s `List_Of_Object_Property_References` has two entries, a local one
+(Chartreuse) and a remote one (`REMOTE_DEVICE_INSTANCE` 389002, Analog Output 1). Earlier sessions
+couldn't wire-test the remote entry on one host: two instances on different UDP ports never see
+each other's broadcast Who-Is/I-Am. `tests/sched_e_b_remote_peer.py` gets around that. It plays
+device 389002 (bacpypes3, commandable AO 1, its own port) and sends B-BC a **unicast** I-Am, which
+the stack's DAB accepts. It then writes Schedule 1's `Schedule_Default` to force a re-evaluation.
+Result, from B-BC's own TX/RX log and the peer's state:
+
+```
+RX ... from 127.0.0.1:47902 - ConfirmedRequest: WriteProperty Schedule 1.Schedule_Default
+WriteProperty: Analog Output 1 (Chartreuse) <- 42.50 @ priority 8
+TX 26 bytes to 127.0.0.1:47902 - ConfirmedRequest: WriteProperty Analog_Output 1.Present_Value
+RX 9 bytes from 127.0.0.1:47902 - SimpleACK: WriteProperty
+peer AO1 Priority_Array: [(8, 42.5)]  ->  RESULT: PASS
+```
+
+**Remaining stack gap:** the Schedule's first evaluation at startup happens before 389002 is
+bound. The stack logs `SendExternalWriteProperty: device instance=[389002] not resolved in DAB -
+skipping the external write`, starts the Who-Is only after that, and never re-sends the skipped
+value once the I-Am arrives. The remote target only catches up at the next `Present_Value` change.
+**Filed:** [chipkin/cas-bacnet-stack#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343).
+Nothing to change on this side. This example's wiring is correct.
 
 ## 3. Calendar 1 ("Cream")'s `Date_List` — inherited, pre-existing gap
 
@@ -113,7 +128,9 @@ Split from [#2178](https://github.com/chipkin/cas-bacnet-stack/issues/2178) (tha
 Abort-PDU bugs — `Schedule.Weekly_Schedule` and `Network_Port.IP_DNS_Server` both aborting — are
 fixed; re-verified live against this repo's current pin). What's left, filed as
 [chipkin/cas-bacnet-stack#2196](https://github.com/chipkin/cas-bacnet-stack/issues/2196) and
-re-confirmed against `a8d3b6bf`:
+re-confirmed against `a8d3b6bf`. **#2196 was then closed upstream, but both symptoms still
+reproduce unchanged on `22ac3c98` (6.0.22)** — refiled as
+[chipkin/cas-bacnet-stack#2340](https://github.com/chipkin/cas-bacnet-stack/issues/2340):
 
 | Property | ID | Read returns |
 |---|---:|---|
@@ -124,3 +141,21 @@ Both are `Property_List`-generated by the stack (not app-controlled — this exa
 or serves either), so there's nothing to change on this side. `FD_Bbmd_Address` (418) returning
 `Error (property, value-not-initialized)` is NOT part of this gap — that's the correct answer for
 a device with no BBMD configured.
+
+## 7. A BACnet/SC "UUID has not been set" error is logged at startup
+
+Every start prints this line once, even though this example is BACnet/IP-only and never touches the
+BACnet/SC API:
+
+```
+::CASBACnetStack::BACnetDataLinkSC::Loop() ... Error: UUID has not been set.  A UUID must be set for the BACnetSC device to start.
+```
+
+`BACnetDataLinkLayer::Loop()` ticks SC data-link instance 0 whenever the stack is compiled with
+`STACK_OPTION_DATA_LINK_LAYER_SC`, whether or not the application configured SC. The error latches
+after one line and BACnet/IP keeps working normally (verified live on `22ac3c98`). It's harmless
+noise in the same class as #2050. Don't set a Device UUID just to silence it: this example has no
+SC port, and setting one would only move SC further through its startup checks.
+
+**Filed:** [chipkin/cas-bacnet-stack#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341).
+Tracked here as [#16](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/16).

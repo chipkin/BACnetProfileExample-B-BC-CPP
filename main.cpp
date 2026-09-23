@@ -37,7 +37,7 @@
 // WHAT IS NOT IMPLEMENTED (see README.md "What this example does NOT do" + TODO.md):
 //   - Calendar 1 "Cream"'s Date_List: there is no customer-facing export or
 //     callback to populate a Calendar object's Date_List (cas-bacnet-stack
-//     issue #963), so Schedule 1 "Saffron"'s one-off exception uses an inline
+//     issue #1758), so Schedule 1 "Saffron"'s one-off exception uses an inline
 //     calendar-date entry rather than a reference to Cream. Inherited from every
 //     prior example that carries a Calendar (B-AAC, B-ACC, B-LS).
 //
@@ -47,7 +47,7 @@
 // a Trend Log and a Trend Log Multiple. Each object has a colour name (the
 // convention shared across this example series):
 //
-//     Device 389005            "Rainbow"     (instance configurable with --deviceID)
+//     Device 389005            "Chipkin Example B-BC"     (instance configurable with --deviceID)
 //     Analog Input  1          "Bronze"      (REAL, degrees Celsius; read-only)
 //     Binary Input  1          "Emerald"     (active / inactive; read-only)
 //     Multi-State Input 1      "Hot Pink"    (state 1..3; read-only)
@@ -104,6 +104,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <string>
 #include <time.h> // time(), localtime_[sr]() - the SCHED-I-B demo-advance key (see KeyCommand::DemoAdvance)
 
 #if defined(_WIN32)
@@ -118,7 +119,7 @@ using namespace CASBACnetStackExampleConstants;
 // 1. Example + device configuration
 // -----------------------------------------------------------------------------
 static const char* APP_NAME = "BACnet B-BC (Building Controller) Example - C++";
-static const char* APP_VERSION = "1.0.2";
+static const char* APP_VERSION = "1.0.6";
 
 // The device instance. BACnet requires this to be configurable, so it defaults
 // to 389005 and can be overridden on the command line with --deviceID. Keep it
@@ -148,10 +149,10 @@ static const uint32_t VENDOR_IDENTIFIER = 389;
 // whole BACnet internetwork, and here it is a COMPILE-TIME constant. The device
 // instance is runtime-configurable via --deviceID, so it is easy to ship two
 // units, configure their instances correctly, and still have BOTH announce
-// Object_Name "Rainbow" - a spec violation, and a hard BTL failure. In a real
+// Object_Name "Chipkin Example B-BC" - a spec violation, and a hard BTL failure. In a real
 // product Object_Name must be per-unit configurable too: derive it from a serial
 // number, DIP switches, a config file, or add a --deviceName argument.
-static const char* DEVICE_NAME = "Rainbow";
+static const char* DEVICE_NAME = "Chipkin Example B-BC";
 
 // The Device object's Description. Change it to what YOUR device actually is;
 // this string describes this tutorial.
@@ -183,10 +184,16 @@ static const char* MODEL_NAME = "CAS BACnet Stack Example - B-BC";
 // not a security boundary.
 static const char* DCC_PASSWORD = "";  // "" = no password required
 
-// FIRMWARE_REVISION / APPLICATION_SOFTWARE_VERSION - your real versions. Wire
-// them to your build rather than hard-coding a number that will go stale.
-static const char* FIRMWARE_REVISION = "1.0.0";
-static const char* APPLICATION_SOFTWARE_VERSION = "1.0.0";
+// Firmware_Revision (Device object property 44) reflects the underlying CAS
+// BACnet Stack's real version, not this example's own. It is populated once
+// in main(), right after LoadBACnetFunctions() succeeds (the version getters
+// it calls are themselves loaded by that call), from
+// BACnetStack_GetAPIMajorVersion()/GetAPIMinorVersion()/GetAPIPatchVersion()/
+// GetAPIBuildVersion() - the same 4 calls common/CASExampleHelper.cpp's
+// PrintVersion() uses for the startup banner. Application_Software_Version
+// (property 12) is this example's own version and just returns APP_VERSION
+// directly - see its use in the property-read switch below.
+static std::string g_firmwareRevision;
 
 // The sensor objects (all instance 1) and their colour names.
 static const uint32_t ANALOG_INPUT_INSTANCE = 1;       // "Bronze"
@@ -286,7 +293,7 @@ static uint8_t RECIPIENT_IP[4] = { 0, 0, 0, 0 };  // used when not broadcasting
 // A weekly transition sets Chartreuse to SCHEDULE_DEMO_VALUE; outside any scheduled
 // window Schedule_Default applies instead. Calendar 1 "Cream" exists as a readable
 // object alongside the exception (see TODO.md for why it is not wired to the
-// exception's period - cas-bacnet-stack issue #963).
+// exception's period - cas-bacnet-stack issue #1758).
 static const uint32_t SCHEDULE_INSTANCE = 1;             // "Saffron"
 static const uint32_t CALENDAR_INSTANCE = 1;              // "Cream"
 static const uint8_t SCHEDULE_WRITE_PRIORITY = 8;          // mid-range: below manual overrides at 1-7
@@ -718,7 +725,7 @@ bool GetPropertyBool(const uint32_t deviceInstance, const uint16_t objectType,
     }
     // Calendar 1 (Cream) Present_Value (required): true when today's date is in
     // Date_List. This example cannot populate a Calendar object's Date_List
-    // through the customer API (cas-bacnet-stack issue #963 - see TODO.md), so
+    // through the customer API (cas-bacnet-stack issue #1758 - see TODO.md), so
     // there is nothing to evaluate against; always answer false rather than
     // fabricate a match.
     if (objectType == OBJECT_TYPE_CALENDAR && objectInstance == CALENDAR_INSTANCE &&
@@ -926,9 +933,9 @@ bool GetPropertyCharString(const uint32_t deviceInstance, const uint16_t objectT
             case PROPERTY_IDENTIFIER_MODEL_NAME:
                 return ReturnCharacterString(MODEL_NAME, value, valueElementCount, maxElementCount, encodingType);
             case PROPERTY_IDENTIFIER_FIRMWARE_REVISION:
-                return ReturnCharacterString(FIRMWARE_REVISION, value, valueElementCount, maxElementCount, encodingType);
+                return ReturnCharacterString(g_firmwareRevision.c_str(), value, valueElementCount, maxElementCount, encodingType);
             case PROPERTY_IDENTIFIER_APPLICATION_SOFTWARE_VERSION:
-                return ReturnCharacterString(APPLICATION_SOFTWARE_VERSION, value, valueElementCount, maxElementCount, encodingType);
+                return ReturnCharacterString(APP_VERSION, value, valueElementCount, maxElementCount, encodingType);
             default:
                 break;
         }
@@ -1526,6 +1533,19 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // g_firmwareRevision (Device object property 44) - see its own doc comment
+    // above for why this is the STACK's version, not this example's own
+    // (that's Application_Software_Version/APP_VERSION instead). Must happen
+    // after LoadBACnetFunctions() (these getters ARE some of the functions it
+    // loads) and before the Device object is ever readable.
+    {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%u.%u.%u.%u",
+                 BACnetStack_GetAPIMajorVersion(), BACnetStack_GetAPIMinorVersion(),
+                 BACnetStack_GetAPIPatchVersion(), BACnetStack_GetAPIBuildVersion());
+        g_firmwareRevision = buf;
+    }
+
     // --- Command line + version --------------------------------------------
     // --help / --version print and exit, so handle them before we bind a socket
     // or touch the stack.
@@ -1929,7 +1949,7 @@ int main(int argc, char** argv) {
     }
     // One exception: an inline calendar-date entry (periodType 0 = a single date,
     // here 2026-12-25) rather than a reference to Cream's Date_List - Cream's
-    // Date_List cannot be populated through the customer API yet (issue #963;
+    // Date_List cannot be populated through the customer API yet (cas-bacnet-stack issue #1758;
     // see TODO.md), so a calendar-REFERENCE exception would be stored but would
     // never actually match. The inline form has no such dependency.
     uint32_t exceptionIndex = 0;

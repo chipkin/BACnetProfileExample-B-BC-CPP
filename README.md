@@ -18,22 +18,21 @@ and ReadRange). It listens on **BACnet/IP (UDP 47808)** and claims only B-BC.
 - **[docs/PICS.md](docs/PICS.md)** - the Protocol Implementation Conformance
   Statement: every object, every property, and who answers it.
 
-> **Versions:** this document describes **example v1.0.2**, built and verified
-> against **CAS BACnet Stack 6.0.21** (`issues/runbook` @ `a8d3b6bf`, ahead of `6.x` - see
-> `TODO.md` for why), at
-> **Protocol_Revision 26**, with the vendored `common/` helper at **v2.8.0**.
+> **Versions:** this document describes **example v1.0.6**, built and verified
+> against **CAS BACnet Stack 6.0.22** (`6.x` @ `22ac3c98`), at
+> **Protocol_Revision 26**, with the vendored `common/` helper at **v3.0.0**.
 > Running the example prints all three - if what it prints disagrees with this
 > line, trust the program and check `CHANGELOG.md`.
 
 > **B-BC is not fully claimable with the standard stack yet.** This example
 > implements every B-BC capability the standard CAS BACnet Stack exposes, and
 > clearly marks what it cannot do - see [TUTORIAL.md](TUTORIAL.md) and
-> [TODO.md](TODO.md). In summary: `AddTrendLogObject` causes a non-fatal
-> internal log flood
-> ([#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050)); Calendar 1
-> ("Cream")'s `Date_List` cannot be populated (issue #963); and Schedule 1's
-> SCHED-E-B remote write is correctly wired but was not wire-verified
-> cross-instance in a single-host test topology.
+> [TODO.md](TODO.md). In summary: Calendar 1
+> ("Cream")'s `Date_List` cannot be populated
+> ([#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758)).
+> Schedule 1's SCHED-E-B remote write is verified on the wire, but the stack
+> drops the write it makes at startup, before the remote device has been
+> found ([#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)).
 
 ## What is a B-BC (Building Controller) profile?
 
@@ -50,7 +49,7 @@ deliberately omitted - it is not required at or above Protocol_Revision 13.
 ## The device this example creates
 
 ```
-Device 389005            "Rainbow"     (instance configurable with --deviceID)
+Device 389005            "Chipkin Example B-BC"     (instance configurable with --deviceID)
 Analog Input  1          "Bronze"      (REAL, degrees Celsius; read-only)
 Binary Input  1          "Emerald"     (active / inactive; read-only)
 Multi-state Input 1      "Hot Pink"    (state 1..3; read-only)
@@ -84,7 +83,7 @@ Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 | AE-ACK-B | Alarm and Event - ACK - B | ✅ |
 | AE-INFO-B | Alarm and Event - Information - B | ✅ |
 | AE-CRL-B | Alarm and Event - Recipient List - B | ✅ |
-| SCHED-E-B | Scheduling - External - B | ✅ (wiring verified; remote write not cross-instance wire-tested - see [TUTORIAL.md](TUTORIAL.md)) |
+| SCHED-E-B | Scheduling - External - B | ✅ (local and remote writes wire-verified; the stack drops the startup write made before the remote device is bound, [#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343) - see [TUTORIAL.md](TUTORIAL.md)) |
 | T-VMT-I-B | Trending - Viewing and Modifying Trends - Internal - B | ✅ (Trend Log Multiple; plain Trend Log has a known gap - see [TUTORIAL.md](TUTORIAL.md)) |
 | T-ATR-B | Trending - Automated Trend Retrieval - B | ✅ (via ReadRange on Trend Log Multiple) |
 | DM-DDB-A | Device Management - Dynamic Device Binding - A | ✅ |
@@ -117,7 +116,7 @@ Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 
 | Object type | Instance | Name |
 |-------------|:--------:|------|
-| Device | 389005 | Rainbow |
+| Device | 389005 | Chipkin Example B-BC |
 | Analog Input | 1 | Bronze |
 | Binary Input | 1 | Emerald |
 | Multi-state Input | 1 | Hot Pink |
@@ -218,12 +217,12 @@ CMake at it: `cmake -B build -S . -D CAS_STACK_DIR=/path/to/cas-bacnet-stack`.
 Expected output:
 
 ```
-BACnet B-BC (Building Controller) Example - C++ v1.0.0
-CAS BACnet Stack version: 6.0.21.0
-Common helper (common/) version: 2.5.0
+BACnet B-BC (Building Controller) Example - C++ v1.0.6
+CAS BACnet Stack version: 6.0.22.0
+Common helper (common/) version: 3.0.0
 FYI: Listening for BACnet/IP on UDP port 47808 (Network Port 1).
 TX 21 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1)
-FYI: Device 389005 ("Rainbow") ready. Vendor ID 389. Press 'h' for help.
+FYI: Device 389005 ("Chipkin Example B-BC") ready. Vendor ID 389. Press 'h' for help.
 ```
 
 The `TX` line is the start-up I-Am the device broadcasts to announce itself, to

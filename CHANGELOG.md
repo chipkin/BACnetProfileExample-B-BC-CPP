@@ -5,6 +5,105 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-09-22
+
+### Fixed
+
+- Trend Log 1 ("Lilac")'s `Record_Count` now climbs as expected
+  ([#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)). The
+  Start_Time/Stop_Time window passed to `BACnetStack_SetTrendLogStartStopTime`
+  was built with `localtime_s`/`localtime_r`, but the stack's own "now" (built
+  from `HelperGetSystemTime()`'s raw `time(0)` and this example's unserved
+  Device `UTC_Offset`, i.e. 0) is UTC wall-clock - on any host not in UTC, the
+  window no longer bracketed the clock the stack actually compares against, so
+  `ReadyToLog` never passed and no records were ever logged. Switched to
+  `gmtime_s`/`gmtime_r` so the window is built from the same clock the stack
+  uses. Live-verified with bacpypes3: `Record_Count` climbs continuously
+  (observed 14 -> 29 -> 44 over 30 seconds). This was a bug in the example,
+  not the stack, so TODO.md's old item 1 is removed and the remaining items
+  are renumbered. (merged from #9)
+
+### Changed
+
+- Stack issue links now point at open issues. The Calendar `Date_List` gap
+  moved from the closed cas-bacnet-stack #963 to
+  [#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758) in
+  `main.cpp`'s comments, `README.md` and `docs/objects.json`, and
+  `docs/PICS.md` was regenerated from it.
+- The SCHED-E-B wording in `README.md`, `docs/PICS.md` and
+  `docs/objects.json` said the remote write was "not wire-verified". It now
+  says the write is wire-verified and links the startup-write gap
+  ([cas-bacnet-stack#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)).
+  README's known-gaps summary no longer lists the #2050 log flood, which is
+  gone on 6.0.22.
+- APP_VERSION bumped 1.0.5 -> 1.0.6.
+
+## [1.0.5] - 2026-09-22
+
+### Changed
+
+- **CAS BACnet Stack moved to 6.0.22** (`6.x` @ `22ac3c98`), from 6.0.21
+  (`issues/runbook` @ `a8d3b6bf`). The example is back on the `6.x` branch
+  that `.gitmodules` names. The early fixes the old pin existed for (#2163,
+  #2164, #2165) are all on `6.x` now. No `main.cpp` changes were needed.
+  If you already have a build tree, run `cmake -B build` again before
+  building. The stack added a new source file, and the adapter's
+  configure-time glob won't see it otherwise
+  ([cas-bacnet-stack#2342](https://github.com/chipkin/cas-bacnet-stack/issues/2342)).
+- **TODO.md re-verified live on 6.0.22.** The Trend Log 1 `Record_Count`
+  gap (#2051) still reproduces. The `AddTrendLogObject` log flood (#2050) is
+  gone. Network Port 1's unreadable `Property_List` entries still reproduce
+  even though #2196 was closed, and are refiled as
+  [cas-bacnet-stack#2340](https://github.com/chipkin/cas-bacnet-stack/issues/2340).
+  New item 8 records the harmless startup BACnet/SC "UUID has not been set"
+  error
+  ([cas-bacnet-stack#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341)).
+  Every open item now links to its tracking issue in this repo.
+- **SCHED-E-B remote fan-out verified on the wire** (#6). The new
+  `tests/sched_e_b_remote_peer.py` plays peer device 389002 and sends a
+  unicast I-Am, so the DAB binds it on one host without a BBMD. Schedule 1
+  then writes the peer's AO 1 at priority 8, and the peer SimpleACKs. This
+  found one stack gap: the startup write, skipped while the peer isn't
+  bound yet, is never re-sent
+  ([cas-bacnet-stack#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)).
+  TODO.md item 3, TUTORIAL.md and AGENTS.md are updated to match.
+- TUTORIAL.md's `DEVICE_NAME` notes now say "Chipkin Example B-BC". The
+  1.0.4 rename missed this file.
+- APP_VERSION bumped 1.0.4 -> 1.0.5.
+
+## [1.0.4] - 2026-09-22
+
+### Changed
+
+- **Device renamed from the series' colour placeholder "Rainbow" to "Chipkin
+  Example B-BC"** so devices from different examples in the series are
+  distinguishable from each other on the same BACnet network - every example
+  previously announced the identical Object_Name "Rainbow", which made two
+  examples on one subnet indistinguishable by name. Sub-object names (Analog
+  Input 1 "Bronze", etc.) are unchanged - only the Device object's name
+  changed. `docs/colour-table.md` (series root) updated to match. APP_VERSION
+  bumped 1.0.3 -> 1.0.4.
+
+## [1.0.3] - 2026-09-22
+
+### Fixed
+
+- **`Application_Software_Version` (12) and `Firmware_Revision` (44) were
+  hardcoded and stale** - both served the literal `"1.0.0"` regardless of the
+  actual build, and `Firmware_Revision` was never meant to be this example's
+  own version at all; it names the underlying platform. Fixed:
+  `Application_Software_Version` now reads `APP_VERSION` directly (one
+  source of truth, can't drift from `--version`'s own banner again).
+  `Firmware_Revision` is now built at runtime from the CAS BACnet Stack's
+  own `BACnetStack_GetAPIMajorVersion()`/`GetAPIMinorVersion()`/
+  `GetAPIPatchVersion()`/`GetAPIBuildVersion()` (the same 4 calls
+  `common/CASExampleHelper.cpp`'s `PrintVersion()` already uses for the
+  startup banner), populated once right after `LoadBACnetFunctions()`
+  succeeds. Verified with a real ReadProperty against the running device
+  (`bacpypes3`): `Application_Software_Version = "1.0.3"`,
+  `Firmware_Revision = "6.0.21.0"` - both now match the actual running build
+  instead of the stale hardcoded string.
+
 ## [1.0.2] - 2026-09-18
 
 ### Changed
@@ -58,20 +157,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DNET=65535`. A new `--xml` option (off by default) prints every frame as
   a full XML block instead. See `common/CHANGELOG.md` for the decode
   details.
-
-### Fixed
-
-- Trend Log 1 ("Lilac")'s `Record_Count` now climbs as expected
-  ([#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)). The
-  Start_Time/Stop_Time window passed to `BACnetStack_SetTrendLogStartStopTime`
-  was built with `localtime_s`/`localtime_r`, but the stack's own "now" (built
-  from `HelperGetSystemTime()`'s raw `time(0)` and this example's unserved
-  Device `UTC_Offset`, i.e. 0) is UTC wall-clock - on any host not in UTC, the
-  window no longer bracketed the clock the stack actually compares against, so
-  `ReadyToLog` never passed and no records were ever logged. Switched to
-  `gmtime_s`/`gmtime_r` so the window is built from the same clock the stack
-  uses. Live-verified with bacpypes3: `Record_Count` climbs continuously
-  (observed 14 -> 29 -> 44 over 30 seconds).
 
 ### Changed
 
