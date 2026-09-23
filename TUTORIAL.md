@@ -31,11 +31,11 @@ per-field note on each saying what to change it to. That block is the
 authoritative checklist; it is in the source rather than here so it cannot be
 skipped by someone who only reads the code.
 
-**THIS IS THE ONE THAT WILL BITE YOU.** `DEVICE_NAME` ("Rainbow") is a
+**THIS IS THE ONE THAT WILL BITE YOU.** `DEVICE_NAME` ("Chipkin Example B-BC") is a
 **compile-time constant**, but `Object_Name` must be unique across the whole
 BACnet internetwork. The device instance is runtime-configurable with
 `--deviceID`, so it is easy to ship two units, configure their instances
-correctly, and still have both announce `Object_Name` `"Rainbow"` - a spec
+correctly, and still have both announce `Object_Name` `"Chipkin Example B-BC"` - a spec
 violation and a hard BTL failure. In a real product `Object_Name` must be
 per-unit configurable too: derive it from a serial number, DIP switches, a
 config file, or add a `--deviceName` argument.
@@ -203,6 +203,8 @@ with reproduction steps.
    same class of defect as `AddEventLogObject`'s
    [#2045](https://github.com/chipkin/cas-bacnet-stack/issues/2045). Filed as
    [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050).
+   **Fixed on the current pin (6.0.22):** no flood in a live run. Kept here in
+   case it comes back on a future pin.
 3. **Schedule 1's SCHED-E-B remote write is wired correctly but not
    cross-instance wire-verified.** `List_Of_Object_Property_References` has
    two entries - each `AddScheduleObjectPropertyReference` call APPENDS - a
@@ -281,7 +283,7 @@ in `accepted`, comes out as a ⚠ row - that is a defect, not a feature.
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| On start-up the app prints a wall of red `Error:` lines but the device works | **Expected — mostly not your bug.** Three benign sources: (1) the device receives its **own** broadcast I-Am and logs a decode cascade - any BACnet/IP device that listens for broadcasts hears itself; (2) a one-time *"UUID has not been set..."* BACnet/SC notice, since these IP-only examples never configure that datalink; (3) once trending starts, a **continuous** `BACnetDateTime::operator =()` flood from `AddTrendLogObject` alone - [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050), non-fatal, does not stop the device working. |
+| On start-up the app prints a wall of red `Error:` lines but the device works | **Expected — mostly not your bug.** Three benign sources: (1) the device receives its **own** broadcast I-Am and logs a decode cascade - any BACnet/IP device that listens for broadcasts hears itself; (2) a one-time *"UUID has not been set..."* BACnet/SC notice, since these IP-only examples never configure that datalink - [#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341); (3) on stack pins older than 6.0.22 only, a **continuous** `BACnetDateTime::operator =()` flood from `AddTrendLogObject` alone - [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050), non-fatal, does not stop the device working. |
 | Reading Trend Log 1 ("Lilac")'s `Record_Count` always returns `0` | **Expected — a filed stack defect, not your bug.** See [Known gaps item 1](#known-gaps-in-this-example) ([#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)). Use Trend Log Multiple 1 ("Magenta") instead. |
 | A ReadProperty of `Log_Buffer` on either Trend Log returns `Error(OBJECT, READ_ACCESS_DENIED)` | **Expected — this property is ReadRange-only.** Use ReadRange (`RangeByPosition`), not ReadProperty. |
 | Schedule 1's remote (SCHED-E-B) write never reaches the peer | Either no peer is running at `REMOTE_DEVICE_INSTANCE` (389002 by default), or the peer is on a different UDP port on the same host - broadcast Who-Is/I-Am does not cross ports, so Device Address Binding cannot resolve it. See [Known gaps item 3](#known-gaps-in-this-example). |

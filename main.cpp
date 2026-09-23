@@ -119,7 +119,7 @@ using namespace CASBACnetStackExampleConstants;
 // 1. Example + device configuration
 // -----------------------------------------------------------------------------
 static const char* APP_NAME = "BACnet B-BC (Building Controller) Example - C++";
-static const char* APP_VERSION = "1.0.4";
+static const char* APP_VERSION = "1.0.5";
 
 // The device instance. BACnet requires this to be configurable, so it defaults
 // to 389005 and can be overridden on the command line with --deviceID. Keep it

@@ -91,11 +91,16 @@ Input 1, `s` advance Schedule 1 (Saffron) to a transition right now.
   [cas-bacnet-stack#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051).
   Don't "fix" this by silently dropping the call from Lilac - it demonstrates
   correct API usage on purpose; Magenta (which never calls it) is the working
-  accumulation demo. Also, `AddTrendLogObject` alone triggers a non-fatal
-  internal log flood
+  accumulation demo. Older stack pins also flooded the log from
+  `AddTrendLogObject` alone
   ([#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050), same
-  class as B-ACC's #2045 for Event Log) - do not treat flood output as a new
-  bug without checking #2050/#2045 first.
+  class as B-ACC's #2045 for Event Log). That's gone on 6.0.22; if it comes
+  back, check #2050/#2045 before treating it as a new bug.
+- **Startup `UUID has not been set` error:** a single
+  `BACnetDataLinkSC::Loop() ... UUID has not been set` line at startup is a
+  harmless stack log defect
+  ([cas-bacnet-stack#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341)).
+  This example never uses BACnet/SC; don't set a UUID to silence it.
 - **SCHED-E-B:** `BACnetStack_AddScheduleObjectPropertyReference` APPENDS
   every call - pass a `refDeviceInstance` other than this device's own to add
   a REMOTE target (this starts the stack's Device Address Binding for that

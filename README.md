@@ -18,10 +18,9 @@ and ReadRange). It listens on **BACnet/IP (UDP 47808)** and claims only B-BC.
 - **[docs/PICS.md](docs/PICS.md)** - the Protocol Implementation Conformance
   Statement: every object, every property, and who answers it.
 
-> **Versions:** this document describes **example v1.0.2**, built and verified
-> against **CAS BACnet Stack 6.0.21** (`issues/runbook` @ `a8d3b6bf`, ahead of `6.x` - see
-> `TODO.md` for why), at
-> **Protocol_Revision 26**, with the vendored `common/` helper at **v2.8.0**.
+> **Versions:** this document describes **example v1.0.5**, built and verified
+> against **CAS BACnet Stack 6.0.22** (`6.x` @ `22ac3c98`), at
+> **Protocol_Revision 26**, with the vendored `common/` helper at **v3.0.0**.
 > Running the example prints all three - if what it prints disagrees with this
 > line, trust the program and check `CHANGELOG.md`.
 
@@ -222,9 +221,9 @@ CMake at it: `cmake -B build -S . -D CAS_STACK_DIR=/path/to/cas-bacnet-stack`.
 Expected output:
 
 ```
-BACnet B-BC (Building Controller) Example - C++ v1.0.0
-CAS BACnet Stack version: 6.0.21.0
-Common helper (common/) version: 2.5.0
+BACnet B-BC (Building Controller) Example - C++ v1.0.5
+CAS BACnet Stack version: 6.0.22.0
+Common helper (common/) version: 3.0.0
 FYI: Listening for BACnet/IP on UDP port 47808 (Network Port 1).
 TX 21 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1)
 FYI: Device 389005 ("Chipkin Example B-BC") ready. Vendor ID 389. Press 'h' for help.

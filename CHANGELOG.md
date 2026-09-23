@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - unreleased
+
+### Changed
+
+- **CAS BACnet Stack moved to 6.0.22** (`6.x` @ `22ac3c98`), from 6.0.21
+  (`issues/runbook` @ `a8d3b6bf`). The example is back on the `6.x` branch
+  that `.gitmodules` names. The early fixes the old pin existed for (#2163,
+  #2164, #2165) are all on `6.x` now. No `main.cpp` changes were needed.
+  If you already have a build tree, run `cmake -B build` again before
+  building. The stack added a new source file, and the adapter's
+  configure-time glob won't see it otherwise
+  ([cas-bacnet-stack#2342](https://github.com/chipkin/cas-bacnet-stack/issues/2342)).
+- **TODO.md re-verified live on 6.0.22.** The Trend Log 1 `Record_Count`
+  gap (#2051) still reproduces. The `AddTrendLogObject` log flood (#2050) is
+  gone. Network Port 1's unreadable `Property_List` entries still reproduce
+  even though #2196 was closed, and are refiled as
+  [cas-bacnet-stack#2340](https://github.com/chipkin/cas-bacnet-stack/issues/2340).
+  New item 8 records the harmless startup BACnet/SC "UUID has not been set"
+  error
+  ([cas-bacnet-stack#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341)).
+  Every open item now links to its tracking issue in this repo.
+- TUTORIAL.md's `DEVICE_NAME` notes now say "Chipkin Example B-BC". The
+  1.0.4 rename missed this file.
+- APP_VERSION bumped 1.0.4 -> 1.0.5.
+
 ## [1.0.4] - unreleased
 
 ### Changed
