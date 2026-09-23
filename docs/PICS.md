@@ -57,7 +57,7 @@ is subsumption, not a second claim.
 | AE-ACK-B | Alarm and Event - ACK - B | Yes |
 | AE-INFO-B | Alarm and Event - Information - B | Yes |
 | AE-CRL-B | Alarm and Event - Recipient List - B | Yes |
-| SCHED-E-B | Scheduling - External - B | Yes (local write live-verified; remote write correctly wired but not cross-instance wire-verified - see [TUTORIAL.md](../TUTORIAL.md)) |
+| SCHED-E-B | Scheduling - External - B | Yes (local and remote writes wire-verified; the stack drops the startup write made before the remote device is bound, [#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343) - see [TUTORIAL.md](../TUTORIAL.md)) |
 | T-VMT-I-B | Trending - Viewing and Modifying Trends - Internal - B | Partial - proven live through Trend Log Multiple 1 ("Magenta"); Trend Log 1 ("Lilac") has a confirmed stack defect ([#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)) that blocks its `Record_Count` from ever incrementing |
 | T-ATR-B | Trending - Automated Trend Retrieval - B | Yes, via ReadRange - live-verified against Trend Log Multiple 1 ("Magenta") |
 | DM-DDB-A | Device Management - Dynamic Device Binding - A | Yes |
@@ -314,7 +314,7 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Recipient_List | BACnetLIST of BACnetDestination | stack default, accepted (None known - a read fails with `unknown-property` or an empt) | yes |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
-### Network Port 1 "Vermilion" - BACnet/IP; Network_Type and Protocol_Level are set from BACnetStack_AddNetworkPortObject()'s arguments (IPv4, BACnet Application) at start-up, not a GetProperty callback like the object's other app-served rows; Changes_Pending is likewise computed and answered natively by the stack's Network Port object. Reliability has no fault condition this example detects, so it is accepted at the generic default (normal)
+### Network Port 1 "Vermilion" - BACnet/IP; Network_Type and Protocol_Level are set from BACnetStack_AddNetworkPortObject()'s arguments (IPv4, BACnet Application) at start-up, not a GetProperty callback like the object's other app-served rows; Changes_Pending is likewise computed and answered natively by the stack's Network Port object. Reliability has no fault condition this example detects, so it is accepted at the generic default (normal). Link_Speed is read once at start-up from the host's primary network interface (CASExampleHelper::GetLocalLinkSpeedBitsPerSecond) - 0.0 if the host OS can't report one, which is the spec-correct 'indeterminable' answer, not a bug
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|
@@ -329,7 +329,7 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Changes_Pending | Boolean | app | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
-### Schedule 1 "Saffron" - SCHED-E-B. Present_Value, Effective_Period, Schedule_Default, List_Of_Object_Property_References, Priority_For_Writing and Status_Flags are NOT stack DEFAULTS - they are genuinely held and served by the stack's Schedule engine (BACnetStack_AddScheduleObject plus the BACnetStack_SetSchedule*/AddSchedule* configuration calls in main.cpp). List_Of_Object_Property_References has TWO entries (each BACnetStack_AddScheduleObjectPropertyReference call appends): a LOCAL one at Analog Output 1 (Chartreuse) Present_Value, and a REMOTE one at a peer device's (default instance 389002, e.g. a locally-built B-SA-CPP) Analog Output 1 Present_Value - the SCHED-E-B / F-EXTWRITE remote fan-out. The local write is proven (inherited from B-AAC's SCHED-I-B); the remote write is correct, documented API usage but was not wire-verified end-to-end this session because two example instances on different UDP ports on one host cannot discover each other by broadcast - see TODO.md item 3. One weekly transition (Monday 08:00) and one calendar-date exception (2026-12-25, via the inline calendar-entry form) are seeded at start-up; the 's' key (common/'s DemoAdvance) adds a transition for right now so the change can be observed without waiting for the wall clock
+### Schedule 1 "Saffron" - SCHED-E-B. Present_Value, Effective_Period, Schedule_Default, List_Of_Object_Property_References, Priority_For_Writing and Status_Flags are NOT stack DEFAULTS - they are genuinely held and served by the stack's Schedule engine (BACnetStack_AddScheduleObject plus the BACnetStack_SetSchedule*/AddSchedule* configuration calls in main.cpp). List_Of_Object_Property_References has TWO entries (each BACnetStack_AddScheduleObjectPropertyReference call appends): a LOCAL one at Analog Output 1 (Chartreuse) Present_Value, and a REMOTE one at a peer device's (default instance 389002, e.g. a locally-built B-SA-CPP) Analog Output 1 Present_Value - the SCHED-E-B / F-EXTWRITE remote fan-out. Both writes are wire-verified: the local one is inherited from B-AAC's SCHED-I-B, and the remote one was checked with tests/sched_e_b_remote_peer.py on stack 6.0.22. The stack drops the startup write made before the peer is bound (cas-bacnet-stack issue #2343) - see TODO.md item 3. One weekly transition (Monday 08:00) and one calendar-date exception (2026-12-25, via the inline calendar-entry form) are seeded at start-up; the 's' key (common/'s DemoAdvance) adds a transition for right now so the change can be observed without waiting for the wall clock
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|
@@ -346,7 +346,7 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Out_Of_Service | Boolean | app | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
-### Calendar 1 "Cream" - exists for SCHED-E-B completeness alongside Saffron's exception, but its Date_List cannot be populated through the customer API (cas-bacnet-stack issue #963 - no read path for a Calendar object's Date_List; the only generic constructed-property callback is test-tool-only). Present_Value therefore always answers false rather than evaluating a Date_List that is never populated - see TODO.md
+### Calendar 1 "Cream" - exists for SCHED-E-B completeness alongside Saffron's exception, but its Date_List cannot be populated through the customer API (cas-bacnet-stack issue #1758 - no read path for a Calendar object's Date_List; the only generic constructed-property callback is test-tool-only). Present_Value therefore always answers false rather than evaluating a Date_List that is never populated - see TODO.md
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|

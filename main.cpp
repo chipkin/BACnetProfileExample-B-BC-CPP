@@ -37,7 +37,7 @@
 // WHAT IS NOT IMPLEMENTED (see README.md "What this example does NOT do" + TODO.md):
 //   - Calendar 1 "Cream"'s Date_List: there is no customer-facing export or
 //     callback to populate a Calendar object's Date_List (cas-bacnet-stack
-//     issue #963), so Schedule 1 "Saffron"'s one-off exception uses an inline
+//     issue #1758), so Schedule 1 "Saffron"'s one-off exception uses an inline
 //     calendar-date entry rather than a reference to Cream. Inherited from every
 //     prior example that carries a Calendar (B-AAC, B-ACC, B-LS).
 //
@@ -119,7 +119,7 @@ using namespace CASBACnetStackExampleConstants;
 // 1. Example + device configuration
 // -----------------------------------------------------------------------------
 static const char* APP_NAME = "BACnet B-BC (Building Controller) Example - C++";
-static const char* APP_VERSION = "1.0.5";
+static const char* APP_VERSION = "1.0.6";
 
 // The device instance. BACnet requires this to be configurable, so it defaults
 // to 389005 and can be overridden on the command line with --deviceID. Keep it
@@ -293,7 +293,7 @@ static uint8_t RECIPIENT_IP[4] = { 0, 0, 0, 0 };  // used when not broadcasting
 // A weekly transition sets Chartreuse to SCHEDULE_DEMO_VALUE; outside any scheduled
 // window Schedule_Default applies instead. Calendar 1 "Cream" exists as a readable
 // object alongside the exception (see TODO.md for why it is not wired to the
-// exception's period - cas-bacnet-stack issue #963).
+// exception's period - cas-bacnet-stack issue #1758).
 static const uint32_t SCHEDULE_INSTANCE = 1;             // "Saffron"
 static const uint32_t CALENDAR_INSTANCE = 1;              // "Cream"
 static const uint8_t SCHEDULE_WRITE_PRIORITY = 8;          // mid-range: below manual overrides at 1-7
@@ -725,7 +725,7 @@ bool GetPropertyBool(const uint32_t deviceInstance, const uint16_t objectType,
     }
     // Calendar 1 (Cream) Present_Value (required): true when today's date is in
     // Date_List. This example cannot populate a Calendar object's Date_List
-    // through the customer API (cas-bacnet-stack issue #963 - see TODO.md), so
+    // through the customer API (cas-bacnet-stack issue #1758 - see TODO.md), so
     // there is nothing to evaluate against; always answer false rather than
     // fabricate a match.
     if (objectType == OBJECT_TYPE_CALENDAR && objectInstance == CALENDAR_INSTANCE &&
@@ -1949,7 +1949,7 @@ int main(int argc, char** argv) {
     }
     // One exception: an inline calendar-date entry (periodType 0 = a single date,
     // here 2026-12-25) rather than a reference to Cream's Date_List - Cream's
-    // Date_List cannot be populated through the customer API yet (issue #963;
+    // Date_List cannot be populated through the customer API yet (cas-bacnet-stack issue #1758;
     // see TODO.md), so a calendar-REFERENCE exception would be stored but would
     // never actually match. The inline form has no such dependency.
     uint32_t exceptionIndex = 0;

@@ -5,7 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.5] - unreleased
+## [1.0.6] - 2026-09-22
+
+### Changed
+
+- Stack issue links now point at open issues. The Calendar `Date_List` gap
+  moved from the closed cas-bacnet-stack #963 to
+  [#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758) in
+  `main.cpp`'s comments, `README.md` and `docs/objects.json`, and
+  `docs/PICS.md` was regenerated from it.
+- The SCHED-E-B wording in `README.md`, `docs/PICS.md` and
+  `docs/objects.json` said the remote write was "not wire-verified". It now
+  says the write is wire-verified and links the startup-write gap
+  ([cas-bacnet-stack#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)).
+  README's known-gaps summary no longer lists the #2050 log flood, which is
+  gone on 6.0.22.
+- APP_VERSION bumped 1.0.5 -> 1.0.6.
+
+## [1.0.5] - 2026-09-22
 
 ### Changed
 
@@ -38,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1.0.4 rename missed this file.
 - APP_VERSION bumped 1.0.4 -> 1.0.5.
 
-## [1.0.4] - unreleased
+## [1.0.4] - 2026-09-22
 
 ### Changed
 
