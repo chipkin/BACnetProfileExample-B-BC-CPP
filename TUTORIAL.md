@@ -205,19 +205,21 @@ with reproduction steps.
    [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050).
    **Fixed on the current pin (6.0.22):** no flood in a live run. Kept here in
    case it comes back on a future pin.
-3. **Schedule 1's SCHED-E-B remote write is wired correctly but not
-   cross-instance wire-verified.** `List_Of_Object_Property_References` has
-   two entries - each `AddScheduleObjectPropertyReference` call APPENDS - a
-   local one at Chartreuse and a remote one at a peer device's Analog Output 1
-   (default instance 389002). The remote reference's mechanism (a
-   `refDeviceInstance` other than this device's own, which starts the stack's
-   Device Address Binding for that instance) is correct, documented API
-   usage. It was **not** wire-verified end-to-end: two example instances on
-   one host had to run on different UDP ports to avoid a bind conflict, and
-   BACnet/IP broadcast Who-Is/I-Am does not cross ports, so Device Address
-   Binding cannot resolve the peer in that topology. Verifying this for real
-   needs two hosts (or containers/VMs) sharing port 47808, or a BBMD relaying
-   between the two ports.
+3. **Schedule 1's SCHED-E-B remote write works, but the first write can be
+   lost at startup.** `List_Of_Object_Property_References` has two entries,
+   because each `AddScheduleObjectPropertyReference` call APPENDS: a local one
+   at Chartreuse and a remote one at a peer device's Analog Output 1 (default
+   instance 389002). Verified on the wire on 6.0.22 with
+   `tests/sched_e_b_remote_peer.py`. The peer sends B-BC a unicast I-Am, so
+   Device Address Binding resolves it without a BBMD, even with both on one
+   host on different ports. It then changes Schedule 1's `Schedule_Default`,
+   and B-BC sends `WriteProperty Analog_Output 1.Present_Value` @ priority 8
+   to the peer, which SimpleACKs. **Stack gap:** the very first evaluation at
+   startup runs before the peer is bound, so the stack logs *"not resolved in
+   DAB - skipping the external write"* and never re-sends that value once the
+   peer binds
+   ([#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)). The
+   remote target catches up at the Schedule's next `Present_Value` change.
 4. **Calendar 1 ("Cream")'s `Date_List` cannot be populated.** There is no
    customer-facing export or callback to populate a Calendar object's
    `Date_List` (cas-bacnet-stack issue #963) - inherited from every prior

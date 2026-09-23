@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   error
   ([cas-bacnet-stack#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341)).
   Every open item now links to its tracking issue in this repo.
+- **SCHED-E-B remote fan-out verified on the wire** (#6). The new
+  `tests/sched_e_b_remote_peer.py` plays peer device 389002 and sends a
+  unicast I-Am, so the DAB binds it on one host without a BBMD. Schedule 1
+  then writes the peer's AO 1 at priority 8, and the peer SimpleACKs. This
+  found one stack gap: the startup write, skipped while the peer isn't
+  bound yet, is never re-sent
+  ([cas-bacnet-stack#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)).
+  TODO.md item 3, TUTORIAL.md and AGENTS.md are updated to match.
 - TUTORIAL.md's `DEVICE_NAME` notes now say "Chipkin Example B-BC". The
   1.0.4 rename missed this file.
 - APP_VERSION bumped 1.0.4 -> 1.0.5.

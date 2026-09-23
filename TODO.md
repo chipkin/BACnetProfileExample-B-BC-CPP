@@ -6,7 +6,6 @@ The example is back on the `6.x` branch named in `.gitmodules`. The previous pin
 fixes are now on `6.x`. Every item below was re-checked live against `22ac3c98`.
 
 Each open item has a tracking issue in this repo:
-[#6](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/6) (item 3),
 [#12](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/12) (item 1),
 [#14](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/14) (item 4),
 [#15](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/15) (item 7),
@@ -103,24 +102,33 @@ looks like noisy internal logging rather than a functional break, matching #2045
 
 **Filed:** [chipkin/cas-bacnet-stack#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050).
 
-## 3. SCHED-E-B remote fan-out — wired correctly, cross-instance wire test not possible on one host without BBMD
+## 3. SCHED-E-B remote fan-out — wire-verified; the startup write is dropped before binding
 
-Schedule 1 ("Saffron")'s `List_Of_Object_Property_References` has two entries:
-`BACnetStack_AddScheduleObjectPropertyReference` is called once with `refDeviceInstance =
-g_deviceInstance` (local, Chartreuse) and once with `refDeviceInstance = REMOTE_DEVICE_INSTANCE`
-(389002, a peer's Analog Output 1) — each call APPENDS per the stack header's own doc comment, so
-Saffron fans every transition out to both. The local reference's mechanism is proven (Schedule's
-existing SCHED-I-B write to Chartreuse, inherited from B-AAC, works). The remote reference is
-correct, documented API usage (`refDeviceInstance` other than the owning device is explicitly the
-documented way to name a remote target, and the header states it starts the stack's own Device
-Address Binding for that instance) but was **not** wire-verified end-to-end this session: this
-example and a peer instance (`BACnetProfileExample-B-SA-CPP`) were each run on a different UDP
-port on the same host to avoid a bind conflict (two processes cannot share one port), which means
-their broadcast Who-Is/I-Am traffic does not reach each other (BACnet/IP broadcast is scoped to
-the port it is sent to) — so Device Address Binding cannot resolve the peer in this topology.
-Verifying this for real needs either two separate hosts (or containers/VMs) sharing port 47808, or
-a BBMD relaying between the two ports — both out of scope for this session's time. Not a defect;
-a test-topology limitation, recorded honestly rather than claimed as verified.
+**Verified on the wire against `22ac3c98` (6.0.22)** — closes
+[#6](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/6).
+
+Schedule 1 ("Saffron")'s `List_Of_Object_Property_References` has two entries, a local one
+(Chartreuse) and a remote one (`REMOTE_DEVICE_INSTANCE` 389002, Analog Output 1). Earlier sessions
+couldn't wire-test the remote entry on one host: two instances on different UDP ports never see
+each other's broadcast Who-Is/I-Am. `tests/sched_e_b_remote_peer.py` gets around that. It plays
+device 389002 (bacpypes3, commandable AO 1, its own port) and sends B-BC a **unicast** I-Am, which
+the stack's DAB accepts. It then writes Schedule 1's `Schedule_Default` to force a re-evaluation.
+Result, from B-BC's own TX/RX log and the peer's state:
+
+```
+RX ... from 127.0.0.1:47902 - ConfirmedRequest: WriteProperty Schedule 1.Schedule_Default
+WriteProperty: Analog Output 1 (Chartreuse) <- 42.50 @ priority 8
+TX 26 bytes to 127.0.0.1:47902 - ConfirmedRequest: WriteProperty Analog_Output 1.Present_Value
+RX 9 bytes from 127.0.0.1:47902 - SimpleACK: WriteProperty
+peer AO1 Priority_Array: [(8, 42.5)]  ->  RESULT: PASS
+```
+
+**Remaining stack gap:** the Schedule's first evaluation at startup happens before 389002 is
+bound. The stack logs `SendExternalWriteProperty: device instance=[389002] not resolved in DAB -
+skipping the external write`, starts the Who-Is only after that, and never re-sends the skipped
+value once the I-Am arrives. The remote target only catches up at the next `Present_Value` change.
+**Filed:** [chipkin/cas-bacnet-stack#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343).
+Nothing to change on this side. This example's wiring is correct.
 
 ## 4. Calendar 1 ("Cream")'s `Date_List` — inherited, pre-existing gap
 
