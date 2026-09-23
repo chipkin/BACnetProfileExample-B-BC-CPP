@@ -54,7 +54,7 @@ deliberately omitted - it is not required at or above Protocol_Revision 13.
 ## The device this example creates
 
 ```
-Device 389005            "Rainbow"     (instance configurable with --deviceID)
+Device 389005            "Chipkin Example B-BC"     (instance configurable with --deviceID)
 Analog Input  1          "Bronze"      (REAL, degrees Celsius; read-only)
 Binary Input  1          "Emerald"     (active / inactive; read-only)
 Multi-state Input 1      "Hot Pink"    (state 1..3; read-only)
@@ -121,7 +121,7 @@ Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse - the wo
 
 | Object type | Instance | Name |
 |-------------|:--------:|------|
-| Device | 389005 | Rainbow |
+| Device | 389005 | Chipkin Example B-BC |
 | Analog Input | 1 | Bronze |
 | Binary Input | 1 | Emerald |
 | Multi-state Input | 1 | Hot Pink |
@@ -227,7 +227,7 @@ CAS BACnet Stack version: 6.0.21.0
 Common helper (common/) version: 2.5.0
 FYI: Listening for BACnet/IP on UDP port 47808 (Network Port 1).
 TX 21 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1)
-FYI: Device 389005 ("Rainbow") ready. Vendor ID 389. Press 'h' for help.
+FYI: Device 389005 ("Chipkin Example B-BC") ready. Vendor ID 389. Press 'h' for help.
 ```
 
 The `TX` line is the start-up I-Am the device broadcasts to announce itself, to

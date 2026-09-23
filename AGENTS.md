@@ -75,7 +75,7 @@ Input 1, `s` advance Schedule 1 (Saffron) to a transition right now.
 
 ## Conventions
 
-- Device is named "Rainbow"; objects use the series' colour names; vendor id 389.
+- Device is named "Chipkin Example B-BC"; objects use the series' colour names; vendor id 389.
 - Implement the B-BC services the stack supports; expose **every required
   property** of each object for Protocol_Revision 24. Anything B-BC requires
   that is NOT implemented must be listed in [TODO.md](TODO.md) and
