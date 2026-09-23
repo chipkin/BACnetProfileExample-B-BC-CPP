@@ -93,8 +93,12 @@ Input 1, `s` advance Schedule 1 (Saffron) to a transition right now.
   Older stack pins also flooded the log from
   `AddTrendLogObject` alone
   ([#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050), same
-  class as B-ACC's #2045 for Event Log). That's gone on 6.0.22; if it comes
-  back, check #2050/#2045 before treating it as a new bug.
+  class as B-ACC's #2045 for Event Log). That's gone on 6.0.22. The current
+  `issues/runbook` pin logs a one-off burst of the same lines at startup,
+  plus one `BACnetDateRange` pair per Calendar `Date_List` access
+  ([#2381](https://github.com/chipkin/cas-bacnet-stack/issues/2381),
+  bisected to stack commit `4c793c15`). Check #2381/#2050 before treating
+  either as a new bug.
 - **Startup `UUID has not been set` error:** a single
   `BACnetDataLinkSC::Loop() ... UUID has not been set` line at startup is a
   harmless stack log defect
@@ -110,6 +114,13 @@ Input 1, `s` advance Schedule 1 (Saffron) to a transition right now.
   the peer is bound, is never re-sent. That's stack gap
   [#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343), not a
   code bug. See TODO.md item 2.
+- **Calendar 1 (Cream) is stack-held** (`BACnetStack_AddCalendarObject`,
+  stack IFC-045): the stack stores `Date_List` and derives `Present_Value`.
+  Don't serve either from a callback, because the stack answers first.
+  Saffron's exception is a calendar reference to Cream
+  (`AddScheduleExceptionEventWithCalendarReference`), which only matches a
+  stack-held Calendar. `tests/calendar_reference_check.py` adds today to
+  `Date_List` and checks Cream -> Saffron -> Chartreuse.
 - Outputs are **commandable**: store the 16-slot `Priority_Array` +
   `Relinquish_Default` in the app (the `Commandable` struct); let the stack
   resolve `Present_Value`. Writes land via the `SetProperty*` callbacks (value)

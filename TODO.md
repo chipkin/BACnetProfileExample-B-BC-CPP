@@ -1,14 +1,15 @@
 # TODO — known gaps (all verified against the pinned stack source and/or the wire, not assumed)
 
-Stack pin: `22ac3c986d3a1c46028527d356ddd80673715bf6` (`6.x`, release 6.0.22, merged 2026-09-22).
-The example is back on the `6.x` branch named in `.gitmodules`. The previous pin (`a8d3b6bf` on
-`issues/runbook`) was only there to pick up fixes for #2163, #2164 and #2165 early, and those
-fixes are now on `6.x`. Every item below was re-checked live against `22ac3c98`.
+Stack pin: `00aa2d0e` (`issues/runbook`, reports 6.0.22, 2026-09-23). This is deliberately ahead of
+the `6.x` branch `.gitmodules` names (`6.x` @ `22ac3c98`), to pick up stack-held Calendar objects
+([#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758), IFC-045) before they reach
+`6.x`. Move back to a `6.x` commit once they do. Items verified on `22ac3c98` say so; everything
+was re-checked live on `00aa2d0e`.
 
 Each open item has a tracking issue in this repo:
-[#14](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/14) (item 3),
-[#15](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/15) (item 6),
-[#16](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/16) (item 7).
+[#18](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/18) (item 1),
+[#15](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/15) (item 5),
+[#16](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/16) (item 6).
 
 ## Fixed on earlier pins (verified live against `a8d3b6bf`, re-checked on `22ac3c98`)
 
@@ -31,15 +32,32 @@ Each open item has a tracking issue in this repo:
   of commits, not by a change that references the issue directly) - see item 1's update below.
 - **[#2178](https://github.com/chipkin/cas-bacnet-stack/issues/2178)** (`Schedule.Weekly_Schedule`
   and `Network_Port.IP_DNS_Server` both Aborting instead of returning a value/Error) — fixed,
-  closed. `IP_DNS_Server` no longer Aborts, but now surfaces a narrower gap of its own — see item 6
+  closed. `IP_DNS_Server` no longer Aborts, but now surfaces a narrower gap of its own — see item 5
   (`chipkin/cas-bacnet-stack#2196`).
 - **[#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)** (Trend Log 1 "Lilac"'s
   `Record_Count` stuck at 0) — **not a stack defect.** The example built the
   `SetTrendLogStartStopTime` window from local time, but the stack compares it against UTC, so
   off-UTC hosts never logged. Fixed in this repo (`gmtime`, #9). Re-verified on `22ac3c98`.
+- **[#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758)** (Calendar `Date_List` had no
+  customer-facing storage, so a Schedule calendar-reference exception never matched) — fixed on
+  `issues/runbook` by stack-held Calendars (IFC-045). Calendar 1 ("Cream") is now stack-held with a
+  December 25 entry and a writable `Date_List`, and Schedule 1's exception references it.
+  Verified live: see CHANGELOG 1.0.7.
 
-## 1. `AddTrendLogObject` causes a continuous internal log flood (same class as #2045) — fixed (regression note only)
+## 1. "Failed to set the date/time" log lines — the #2050 flood is fixed, but a new startup burst is back on this pin
 
+**On the current pin (`00aa2d0e`):** 8 pairs of `BACnetDateTime ... Failed to set the date/time`
+lines at startup, then silence. This is not the old per-tick flood. In addition, every access to
+Calendar 1's `Date_List` logs one `BACnetDateRange ... Failed to set the start/end date` pair.
+Behaviour is correct throughout. `git bisect` (same example source at every step) puts the startup
+burst at stack commit `4c793c15` (#2207, SC hub-connection timestamps): `BACnetSCHubConnection::Reset()`
+assigns an all-unspecified `BACnetDateTime`, and `operator=` rejects unspecified fields. The SC
+data link builds those objects even on this BACnet/IP-only device. The `Date_List` lines are the
+same pattern in the new Calendar code.
+**Filed:** [chipkin/cas-bacnet-stack#2381](https://github.com/chipkin/cas-bacnet-stack/issues/2381).
+Tracked here as [#18](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/18).
+
+**The original #2050 flood (below) stays fixed:**
 **Fixed.** 0 occurrences of the flood over a ~30-second live run against `22ac3c98` (6.0.22). It
 was already gone on `a8d3b6bf`. #2050 is still open upstream (see the re-verification comment
 there) because no single commit names it. Tracked to closure by
@@ -95,19 +113,7 @@ value once the I-Am arrives. The remote target only catches up at the next `Pres
 **Filed:** [chipkin/cas-bacnet-stack#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343).
 Nothing to change on this side. This example's wiring is correct.
 
-## 3. Calendar 1 ("Cream")'s `Date_List` — inherited, pre-existing gap
-
-Same gap B-AAC's (and B-ACC's) file header already documents against stack issue
-[#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758) (formerly tracked as #963, which
-was closed 2026-09-13 with the remaining work split off to #1758 — update this link if you find
-another sibling example still pointing at the closed #963):
-`BACnetStack_AddScheduleExceptionEventWithCalendarReference` does not resolve a Calendar's
-`Date_List` at evaluation time, and there is no customer-facing way to populate `Date_List` at
-all. This file uses the inline `...WithCalendarEntry` exception form instead (fully functional,
-live-verified), exactly as B-AAC does; Cream still exists as a correctly-served object with
-`Date_List` `accepted` (not served) in `docs/objects.json`.
-
-## 4. F-REINIT / #2036 (Life Safety) — confirmed not applicable
+## 3. F-REINIT / #2036 (Life Safety) — confirmed not applicable
 
 B-LSC's own port of this callback (`implement-lsc` branch, unmerged) states in its file header:
 "F-REINIT (DM-RD-B): unchanged from B-AAC/B-ASC" — this example's `ReinitializeDevice` (inherited
@@ -116,13 +122,13 @@ B-ACC's pattern) is therefore already the same code B-LSC itself uses for COLDST
 This example carries **no** Life Safety Point/Zone objects, so cas-bacnet-stack#2036 (a Life Safety
 Point/Zone-specific defect) does not apply here — confirmed by inspection, not assumed.
 
-## 5. Access-family gaps (#2044, #2046) — confirmed not applicable
+## 4. Access-family gaps (#2044, #2046) — confirmed not applicable
 
 This profile carries no Access Door/Point/Credential/Rights/Zone objects, so the AE-AC-B
 notification-generation gap (#2044) and the constructed-property read gaps (#2046) B-ACC found do
 not apply to this example.
 
-## 6. Network Port 1's `Property_List` advertises two properties it can't actually answer
+## 5. Network Port 1's `Property_List` advertises two properties it can't actually answer
 
 Split from [#2178](https://github.com/chipkin/cas-bacnet-stack/issues/2178) (that issue's own
 Abort-PDU bugs — `Schedule.Weekly_Schedule` and `Network_Port.IP_DNS_Server` both aborting — are
@@ -142,7 +148,7 @@ or serves either), so there's nothing to change on this side. `FD_Bbmd_Address` 
 `Error (property, value-not-initialized)` is NOT part of this gap — that's the correct answer for
 a device with no BBMD configured.
 
-## 7. A BACnet/SC "UUID has not been set" error is logged at startup
+## 6. A BACnet/SC "UUID has not been set" error is logged at startup
 
 Every start prints this line once, even though this example is BACnet/IP-only and never touches the
 BACnet/SC API:

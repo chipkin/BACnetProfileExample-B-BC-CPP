@@ -131,17 +131,18 @@
       "enabled": [],
       "writable": [],
       "accepted": ["Present_Value", "Effective_Period", "Priority_For_Writing"],
-      "note": "SCHED-E-B. Present_Value, Effective_Period, Schedule_Default, List_Of_Object_Property_References, Priority_For_Writing and Status_Flags are NOT stack DEFAULTS - they are genuinely held and served by the stack's Schedule engine (BACnetStack_AddScheduleObject plus the BACnetStack_SetSchedule*/AddSchedule* configuration calls in main.cpp). List_Of_Object_Property_References has TWO entries (each BACnetStack_AddScheduleObjectPropertyReference call appends): a LOCAL one at Analog Output 1 (Chartreuse) Present_Value, and a REMOTE one at a peer device's (default instance 389002, e.g. a locally-built B-SA-CPP) Analog Output 1 Present_Value - the SCHED-E-B / F-EXTWRITE remote fan-out. Both writes are wire-verified: the local one is inherited from B-AAC's SCHED-I-B, and the remote one was checked with tests/sched_e_b_remote_peer.py on stack 6.0.22. The stack drops the startup write made before the peer is bound (cas-bacnet-stack issue #2343) - see TODO.md item 2. One weekly transition (Monday 08:00) and one calendar-date exception (2026-12-25, via the inline calendar-entry form) are seeded at start-up; the 's' key (common/'s DemoAdvance) adds a transition for right now so the change can be observed without waiting for the wall clock"
+      "note": "SCHED-E-B. Present_Value, Effective_Period, Schedule_Default, List_Of_Object_Property_References, Priority_For_Writing and Status_Flags are NOT stack DEFAULTS - they are genuinely held and served by the stack's Schedule engine (BACnetStack_AddScheduleObject plus the BACnetStack_SetSchedule*/AddSchedule* configuration calls in main.cpp). List_Of_Object_Property_References has TWO entries (each BACnetStack_AddScheduleObjectPropertyReference call appends): a LOCAL one at Analog Output 1 (Chartreuse) Present_Value, and a REMOTE one at a peer device's (default instance 389002, e.g. a locally-built B-SA-CPP) Analog Output 1 Present_Value - the SCHED-E-B / F-EXTWRITE remote fan-out. Both writes are wire-verified: the local one is inherited from B-AAC's SCHED-I-B, and the remote one was checked with tests/sched_e_b_remote_peer.py on stack 6.0.22. The stack drops the startup write made before the peer is bound (cas-bacnet-stack issue #2343) - see TODO.md item 2. One weekly transition (Monday 08:00) and one exception - a calendar reference to Calendar 1 (Cream), whose Date_List holds December 25 - are seeded at start-up; the 's' key (common/'s DemoAdvance) adds a transition for right now so the change can be observed without waiting for the wall clock"
     },
     {
       "type": "Calendar",
       "instance": 1,
       "name": "Cream",
-      "app": ["Object_Name", "Present_Value"],
+      "app": ["Object_Name"],
+      "stack": ["Present_Value", "Date_List"],
       "enabled": [],
-      "writable": [],
-      "accepted": ["Date_List"],
-      "note": "exists for SCHED-E-B completeness alongside Saffron's exception, but its Date_List cannot be populated through the customer API (cas-bacnet-stack issue #1758 - no read path for a Calendar object's Date_List; the only generic constructed-property callback is test-tool-only). Present_Value therefore always answers false rather than evaluating a Date_List that is never populated - see TODO.md"
+      "writable": ["Date_List"],
+      "accepted": [],
+      "note": "stack-held (BACnetStack_AddCalendarObject, cas-bacnet-stack IFC-045 / #1758): the stack stores Date_List (one entry, December 25 of every year, added with BACnetStack_AddCalendarDateEntry) and derives Present_Value from the device's Local_Date. Date_List is WRITABLE (WriteProperty / AddListElement / RemoveListElement) via BACnetStack_SetPropertyWritable. Schedule 1 (Saffron)'s exception is a calendar reference to this object, so any date in Date_List drives Saffron to its exception value"
     },
     {
       "type": "File",

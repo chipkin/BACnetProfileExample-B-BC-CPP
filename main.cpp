@@ -34,12 +34,7 @@
 // Deliberately OMITTED: AE-ESUM-B (GetAlarmSummary) is not required at or above
 // Protocol_Revision 13, so it is not implemented here.
 //
-// WHAT IS NOT IMPLEMENTED (see README.md "What this example does NOT do" + TODO.md):
-//   - Calendar 1 "Cream"'s Date_List: there is no customer-facing export or
-//     callback to populate a Calendar object's Date_List (cas-bacnet-stack
-//     issue #1758), so Schedule 1 "Saffron"'s one-off exception uses an inline
-//     calendar-date entry rather than a reference to Cream. Inherited from every
-//     prior example that carries a Calendar (B-AAC, B-ACC, B-LS).
+// Known stack gaps this example works around are listed in TODO.md.
 //
 // The device keeps the full B-AAC object set (three read-only inputs, three
 // commandable outputs, the alarm-capable Analog Value + Notification Class,
@@ -59,7 +54,8 @@
 //     Network Port 1           "Vermilion"   (the BACnet/IP port - required)
 //     Schedule 1               "Saffron"     (drives Chartreuse on a weekly + exception basis,
 //                                              and a remote peer object - SCHED-E-B)
-//     Calendar 1               "Cream"       (see TODO.md - Date_List not evaluated)
+//     Calendar 1               "Cream"       (stack-held Date_List: every December 25;
+//                                              Date_List WRITABLE; drives Saffron's exception)
 //     File 1                   "Ivory"       (backup/restore payload - DM-BR-B)
 //     Trend Log 1              "Lilac"       (polled log of Analog Input 1 "Bronze")
 //     Trend Log Multiple 1     "Magenta"     (polled log of several points)
@@ -119,7 +115,7 @@ using namespace CASBACnetStackExampleConstants;
 // 1. Example + device configuration
 // -----------------------------------------------------------------------------
 static const char* APP_NAME = "BACnet B-BC (Building Controller) Example - C++";
-static const char* APP_VERSION = "1.0.6";
+static const char* APP_VERSION = "1.0.7";
 
 // The device instance. BACnet requires this to be configurable, so it defaults
 // to 389005 and can be overridden on the command line with --deviceID. Keep it
@@ -291,9 +287,8 @@ static uint8_t RECIPIENT_IP[4] = { 0, 0, 0, 0 };  // used when not broadcasting
 
 // --- SCHED-I-B: Schedule 1 "Saffron" drives Analog Output 1 (Chartreuse) -------
 // A weekly transition sets Chartreuse to SCHEDULE_DEMO_VALUE; outside any scheduled
-// window Schedule_Default applies instead. Calendar 1 "Cream" exists as a readable
-// object alongside the exception (see TODO.md for why it is not wired to the
-// exception's period - cas-bacnet-stack issue #1758).
+// window Schedule_Default applies instead. Saffron's one exception references
+// Calendar 1 "Cream": on any date in Cream's Date_List, the exception value wins.
 static const uint32_t SCHEDULE_INSTANCE = 1;             // "Saffron"
 static const uint32_t CALENDAR_INSTANCE = 1;              // "Cream"
 static const uint8_t SCHEDULE_WRITE_PRIORITY = 8;          // mid-range: below manual overrides at 1-7
@@ -308,6 +303,7 @@ static const uint16_t OBJECT_TYPE_SCHEDULE = 17;
 static const uint16_t OBJECT_TYPE_CALENDAR = 6;
 static const uint32_t PROPERTY_IDENTIFIER_RELIABILITY = 103;
 static const uint32_t PROPERTY_IDENTIFIER_RECIPIENT_LIST = 102;
+static const uint32_t PROPERTY_IDENTIFIER_DATE_LIST = 23;
 static const uint32_t RELIABILITY_NO_FAULT_DETECTED = 0;
 
 // --- DM-BR-B: File 1 "Ivory" (backup/restore payload carrier) - the B-ACC addition ---
@@ -722,16 +718,6 @@ bool GetPropertyBool(const uint32_t deviceInstance, const uint16_t objectType,
     (void)errorCode;
     if (deviceInstance != g_deviceInstance) {
         return false;
-    }
-    // Calendar 1 (Cream) Present_Value (required): true when today's date is in
-    // Date_List. This example cannot populate a Calendar object's Date_List
-    // through the customer API (cas-bacnet-stack issue #1758 - see TODO.md), so
-    // there is nothing to evaluate against; always answer false rather than
-    // fabricate a match.
-    if (objectType == OBJECT_TYPE_CALENDAR && objectInstance == CALENDAR_INSTANCE &&
-        propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
-        *value = false;
-        return true;
     }
     // Commandable outputs: the stack asks "is this Priority_Array slot null?" with
     // the boolean getter. Answer true (1) for a relinquished slot, false (0) for a
@@ -1889,8 +1875,34 @@ int main(int argc, char** argv) {
         printf("Error: Failed to add Schedule 1 (Saffron).\n");
         return 1;
     }
+    // Calendar 1 (Cream) is STACK-HELD: after BACnetStack_AddCalendarObject the
+    // stack stores Cream's Date_List, serves it on ReadProperty, and derives
+    // Present_Value itself (TRUE when the device's Local_Date matches any entry,
+    // re-checked every tick, with COV). No Present_Value / Date_List callback is
+    // needed - the stack answers first. (A Calendar added only with
+    // BACnetStack_AddObject is still served by your callbacks, as before.)
     if (!BACnetStack_AddObject(g_deviceInstance, OBJECT_TYPE_CALENDAR, CALENDAR_INSTANCE)) {
         printf("Error: Failed to add Calendar 1 (Cream).\n");
+        return 1;
+    }
+    if (!BACnetStack_AddCalendarObject(g_deviceInstance, CALENDAR_INSTANCE)) {
+        printf("Error: Failed to make Calendar 1 (Cream) stack-held.\n");
+        return 1;
+    }
+    // One Date_List entry: December 25 of EVERY year (year 0 = any year,
+    // weekday 255 = any day of the week). BACnetStack_AddCalendarDateRangeEntry
+    // and BACnetStack_AddCalendarWeekNDayEntry add the other two
+    // BACnetCalendarEntry forms (a date range; e.g. "4th Thursday of November").
+    if (!BACnetStack_AddCalendarDateEntry(g_deviceInstance, CALENDAR_INSTANCE,
+                                          0 /*any year*/, 12, 25, 255 /*any weekday*/)) {
+        printf("Error: Failed to add Cream's December 25 Date_List entry.\n");
+        return 1;
+    }
+    // Let BACnet clients edit the holiday list (WriteProperty, AddListElement,
+    // RemoveListElement on Date_List). Read-only by default.
+    if (!BACnetStack_SetPropertyWritable(g_deviceInstance, OBJECT_TYPE_CALENDAR, CALENDAR_INSTANCE,
+                                         PROPERTY_IDENTIFIER_DATE_LIST, true)) {
+        printf("Error: Failed to make Cream's Date_List writable.\n");
         return 1;
     }
     if (!BACnetStack_AddScheduleObject(g_deviceInstance, SCHEDULE_INSTANCE)) {
@@ -1947,24 +1959,23 @@ int main(int argc, char** argv) {
         printf("Error: Failed to add Saffron's weekly Monday 08:00 transition.\n");
         return 1;
     }
-    // One exception: an inline calendar-date entry (periodType 0 = a single date,
-    // here 2026-12-25) rather than a reference to Cream's Date_List - Cream's
-    // Date_List cannot be populated through the customer API yet (cas-bacnet-stack issue #1758;
-    // see TODO.md), so a calendar-REFERENCE exception would be stored but would
-    // never actually match. The inline form has no such dependency.
+    // One exception: a CALENDAR REFERENCE to Cream. On every date in Cream's
+    // Date_List (December 25, plus anything a client adds), the exception's
+    // time-value applies from 00:00 and overrides the weekly schedule. The
+    // Calendar must be stack-held (above) for a reference to ever match.
+    // (BACnetStack_AddScheduleExceptionEventWithCalendarEntry is the inline
+    // alternative: the date lives in the Schedule itself, not in a Calendar.)
     uint32_t exceptionIndex = 0;
-    if (!BACnetStack_AddScheduleExceptionEventWithCalendarEntry(
-            g_deviceInstance, SCHEDULE_INSTANCE, 0 /*periodType: calendar Date*/,
-            2026, 12, 25, 255 /*wd1: any*/,
-            0, 255, 255, 255 /*y2/m2/d2/wd2: unused for periodType 0*/,
+    if (!BACnetStack_AddScheduleExceptionEventWithCalendarReference(
+            g_deviceInstance, SCHEDULE_INSTANCE, CALENDAR_INSTANCE,
             1 /*eventPriority: highest*/, &exceptionIndex)) {
-        printf("Error: Failed to add Saffron's 2026-12-25 exception event.\n");
+        printf("Error: Failed to add Saffron's Calendar 1 (Cream) exception event.\n");
         return 1;
     }
     if (!BACnetStack_AddScheduleExceptionTimeValue(g_deviceInstance, SCHEDULE_INSTANCE,
                                                    exceptionIndex, 0, 0, 0, 0,
                                                    4 /*Real*/, 0, SCHEDULE_EXCEPTION_VALUE)) {
-        printf("Error: Failed to add Saffron's 2026-12-25 exception time-value.\n");
+        printf("Error: Failed to add Saffron's Cream exception time-value.\n");
         return 1;
     }
 
