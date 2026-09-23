@@ -59,6 +59,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a full XML block instead. See `common/CHANGELOG.md` for the decode
   details.
 
+### Fixed
+
+- Trend Log 1 ("Lilac")'s `Record_Count` now climbs as expected
+  ([#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)). The
+  Start_Time/Stop_Time window passed to `BACnetStack_SetTrendLogStartStopTime`
+  was built with `localtime_s`/`localtime_r`, but the stack's own "now" (built
+  from `HelperGetSystemTime()`'s raw `time(0)` and this example's unserved
+  Device `UTC_Offset`, i.e. 0) is UTC wall-clock - on any host not in UTC, the
+  window no longer bracketed the clock the stack actually compares against, so
+  `ReadyToLog` never passed and no records were ever logged. Switched to
+  `gmtime_s`/`gmtime_r` so the window is built from the same clock the stack
+  uses. Live-verified with bacpypes3: `Record_Count` climbs continuously
+  (observed 14 -> 29 -> 44 over 30 seconds).
+
 ### Changed
 
 - Restructured documentation to match the series' shared shape: `README.md`

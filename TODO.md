@@ -31,45 +31,7 @@ back to a `6.x` commit once they do). Reports stack version 6.0.21.
   closed. `IP_DNS_Server` no longer Aborts, but now surfaces a narrower gap of its own — see item 7
   (`chipkin/cas-bacnet-stack#2196`).
 
-## 1. Trend Log 1 ("Lilac") never accumulates records — `SetTrendLogStartStopTime` gap
-
-**Re-verified against the current pin (`a8d3b6bf`) — still reproduces.** `Record_Count` reads
-back `0` after 15 seconds of live polling, same as originally reported. Still open upstream
-([#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)); nothing below this line has
-changed.
-
-`BACnetStack_SetTrendLogStartStopTime`, called on Lilac (a plain `trendLog` object, not Trend Log
-Multiple), reproducibly leaves `Record_Count`/`Total_Record_Count` at `0` forever, even though:
-
-- `Enable` reads back `true`,
-- `Start_Time` and `Stop_Time` read back exactly as set (verified live, a concrete past
-  `Start_Time` and a concrete future `Stop_Time` that genuinely bracket "now"),
-- `SetTrendLogTypeToPolled(enable=true, ...)` was called with the same parameters used
-  successfully elsewhere in this file.
-
-Isolated this session (bacpypes3, this device running standalone, several fresh process restarts
-between variants):
-
-- Reproduced with `Start_Time` fully "unspecified" (every field `255`) and a concrete future
-  `Stop_Time`.
-- Reproduced with a concrete past `Start_Time` (current wall-clock) and a concrete future
-  `Stop_Time`.
-- Reproduced calling `SetTrendLogStartStopTime` before `SetTrendLogTypeToPolled`, and after it —
-  call order does not matter.
-- The only configuration that logs is **not calling `SetTrendLogStartStopTime` at all** — exactly
-  Trend Log Multiple 1 ("Magenta")'s configuration below, which is otherwise identical
-  (`SetTrendLogTypeToPolled(enable=true, stopWhenFull=false, interval=100)`) and accumulates
-  records normally (20–190+ records observed across several live runs).
-
-This example still calls `SetTrendLogStartStopTime` on Lilac — it is correct, documented,
-customer-facing API usage, worth demonstrating even though it currently blocks logging — but
-Lilac's own `Record_Count` will read `0` in any live demo. **Trend Log Multiple 1 ("Magenta") is
-this example's working polled-accumulation + ReadRange demonstration** (T-VMT-I-B / T-ATR-B are
-both genuinely proven through it, live-verified this session).
-
-**Filed:** [chipkin/cas-bacnet-stack#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051).
-
-## 2. `AddTrendLogObject` causes a continuous internal log flood (same class as #2045) — appears fixed as of `a8d3b6bf`
+## 1. `AddTrendLogObject` causes a continuous internal log flood (same class as #2045) — appears fixed as of `a8d3b6bf`
 
 **Update:** 0 occurrences of the flood over a 12-second live run against the current pin
 (`a8d3b6bf`), where the previously pinned commit flooded from the very first `BACnetStack_Tick()`.
@@ -99,7 +61,7 @@ looks like noisy internal logging rather than a functional break, matching #2045
 
 **Filed:** [chipkin/cas-bacnet-stack#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050).
 
-## 3. SCHED-E-B remote fan-out — wired correctly, cross-instance wire test not possible on one host without BBMD
+## 2. SCHED-E-B remote fan-out — wired correctly, cross-instance wire test not possible on one host without BBMD
 
 Schedule 1 ("Saffron")'s `List_Of_Object_Property_References` has two entries:
 `BACnetStack_AddScheduleObjectPropertyReference` is called once with `refDeviceInstance =
@@ -118,7 +80,7 @@ Verifying this for real needs either two separate hosts (or containers/VMs) shar
 a BBMD relaying between the two ports — both out of scope for this session's time. Not a defect;
 a test-topology limitation, recorded honestly rather than claimed as verified.
 
-## 4. Calendar 1 ("Cream")'s `Date_List` — inherited, pre-existing gap
+## 3. Calendar 1 ("Cream")'s `Date_List` — inherited, pre-existing gap
 
 Same gap B-AAC's (and B-ACC's) file header already documents against stack issue
 [#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758) (formerly tracked as #963, which
@@ -130,7 +92,7 @@ all. This file uses the inline `...WithCalendarEntry` exception form instead (fu
 live-verified), exactly as B-AAC does; Cream still exists as a correctly-served object with
 `Date_List` `accepted` (not served) in `docs/objects.json`.
 
-## 5. F-REINIT / #2036 (Life Safety) — confirmed not applicable
+## 4. F-REINIT / #2036 (Life Safety) — confirmed not applicable
 
 B-LSC's own port of this callback (`implement-lsc` branch, unmerged) states in its file header:
 "F-REINIT (DM-RD-B): unchanged from B-AAC/B-ASC" — this example's `ReinitializeDevice` (inherited
@@ -139,13 +101,13 @@ B-ACC's pattern) is therefore already the same code B-LSC itself uses for COLDST
 This example carries **no** Life Safety Point/Zone objects, so cas-bacnet-stack#2036 (a Life Safety
 Point/Zone-specific defect) does not apply here — confirmed by inspection, not assumed.
 
-## 6. Access-family gaps (#2044, #2046) — confirmed not applicable
+## 5. Access-family gaps (#2044, #2046) — confirmed not applicable
 
 This profile carries no Access Door/Point/Credential/Rights/Zone objects, so the AE-AC-B
 notification-generation gap (#2044) and the constructed-property read gaps (#2046) B-ACC found do
 not apply to this example.
 
-## 7. Network Port 1's `Property_List` advertises two properties it can't actually answer
+## 6. Network Port 1's `Property_List` advertises two properties it can't actually answer
 
 Split from [#2178](https://github.com/chipkin/cas-bacnet-stack/issues/2178) (that issue's own
 Abort-PDU bugs — `Schedule.Weekly_Schedule` and `Network_Port.IP_DNS_Server` both aborting — are

@@ -85,14 +85,12 @@ Input 1, `s` advance Schedule 1 (Saffron) to a transition right now.
   drive a Trend Log; the stack stores and serves almost everything (`Enable`,
   `Buffer_Size`, `Log_Buffer`, `Record_Count`, etc.) - only `Object_Name`
   needs an app callback. `Log_Buffer` is **ReadRange-only** (a plain
-  ReadProperty is rejected). **KNOWN STACK DEFECT:** calling
-  `SetTrendLogStartStopTime` on a Trend Log (not Trend Log Multiple)
-  reproducibly blocks `Record_Count` from ever incrementing - filed as
-  [cas-bacnet-stack#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051).
-  Don't "fix" this by silently dropping the call from Lilac - it demonstrates
-  correct API usage on purpose; Magenta (which never calls it) is the working
-  accumulation demo. Also, `AddTrendLogObject` alone triggers a non-fatal
-  internal log flood
+  ReadProperty is rejected). `SetTrendLogStartStopTime`'s Start_Time/Stop_Time
+  window MUST be built from the same clock the stack compares its own "now"
+  against (UTC, via `gmtime`/`gmtime_s`) - not `localtime`/`localtime_s`,
+  which silently blocks `Record_Count` from ever incrementing on any host not
+  in UTC (fixed, [cas-bacnet-stack#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)).
+  Also, `AddTrendLogObject` alone triggers a non-fatal internal log flood
   ([#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050), same
   class as B-ACC's #2045 for Event Log) - do not treat flood output as a new
   bug without checking #2050/#2045 first.
@@ -145,7 +143,7 @@ There are no unit tests; verification is behavioural:
    recipient.
 7. **Trending**: wait a few seconds, then ReadRange Trend Log Multiple 1
    "Magenta"'s `Log_Buffer`; confirm `Record_Count` climbs and records
-   decode. Do not expect Lilac's `Record_Count` to move - see #2051 above.
+   decode. Trend Log 1 "Lilac"'s `Record_Count` should climb too.
 8. **Backup**: AtomicWriteFile then AtomicReadFile against File 1 "Ivory";
    round-trip the bytes; drive ReinitializeDevice through
    STARTBACKUP/ENDBACKUP/STARTRESTORE/ENDRESTORE.
