@@ -144,7 +144,7 @@ a Value object and it silently stays non-commandable.
 | Notification Class | `Object_Name` | `Priority`/`Ack_Required`/`Recipient_List` held by the stack's own host-configuration API (`AddNotificationClassObject` / `AddRecipientToNotificationClass`), not a `GetProperty*` callback |
 | Network Port | `Object_Name`, `Out_Of_Service`, `Network_Type`, `Protocol_Level`, `Changes_Pending` | BACnet/IP addressing via `GetPropertyOctetString` |
 | Schedule | `Object_Name`, `Reliability`, `Out_Of_Service` | `Present_Value`/`Effective_Period`/`Schedule_Default`/`List_Of_Object_Property_References` held by the stack's Schedule engine |
-| Calendar | `Object_Name`, `Present_Value` | `Date_List` cannot be populated through the customer API - see [Known gaps](#known-gaps-in-this-example) |
+| Calendar | `Object_Name` | Stack-held: after `AddCalendarObject` the stack stores `Date_List` (populate with `AddCalendarDateEntry` / `AddCalendarDateRangeEntry` / `AddCalendarWeekNDayEntry`) and derives `Present_Value` from the device's `Local_Date`. Make `Date_List` writable with `SetPropertyWritable(..., 23, true)` to let clients edit it |
 | File | `Object_Name`, `File_Type`, `File_Size`, `Modification_Date`, `Archive` (writable), `Read_Only` | `File_Access_Method` served by the stack |
 | Trend Log | `Object_Name` | everything else held by the stack's Trend Log engine once configured |
 | Trend Log Multiple | `Object_Name` | everything else held by the stack's Trend Log Multiple engine once configured |
@@ -189,8 +189,11 @@ with reproduction steps.
    same class of defect as `AddEventLogObject`'s
    [#2045](https://github.com/chipkin/cas-bacnet-stack/issues/2045). Filed as
    [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050).
-   **Fixed on the current pin (6.0.22):** no flood in a live run. Kept here in
-   case it comes back on a future pin.
+   **Fixed since 6.0.22:** no per-tick flood. The current `issues/runbook`
+   pin instead logs a one-off burst of the same lines at startup, plus one
+   `BACnetDateRange ... start/end date` pair per Calendar `Date_List` access.
+   It's harmless, and bisected and filed as
+   [#2381](https://github.com/chipkin/cas-bacnet-stack/issues/2381).
 2. **Schedule 1's SCHED-E-B remote write works, but the first write can be
    lost at startup.** `List_Of_Object_Property_References` has two entries,
    because each `AddScheduleObjectPropertyReference` call APPENDS: a local one
@@ -206,15 +209,6 @@ with reproduction steps.
    peer binds
    ([#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)). The
    remote target catches up at the Schedule's next `Present_Value` change.
-3. **Calendar 1 ("Cream")'s `Date_List` cannot be populated.** There is no
-   customer-facing export or callback to populate a Calendar object's
-   `Date_List` (cas-bacnet-stack issue #1758) - inherited from every prior
-   example in the series that carries a Calendar. Schedule 1's one-off
-   exception uses an inline calendar-date entry
-   (`AddScheduleExceptionEventWithCalendarEntry`) instead of a reference to
-   Cream, which is fully functional and does not depend on this gap. Cream
-   still exists as a correctly-served object; `Present_Value` always answers
-   `false` rather than evaluating a `Date_List` that is never populated.
 
 ## Reviewing your device
 
@@ -270,10 +264,10 @@ in `accepted`, comes out as a ⚠ row - that is a defect, not a feature.
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| On start-up the app prints a wall of red `Error:` lines but the device works | **Expected — mostly not your bug.** Three benign sources: (1) the device receives its **own** broadcast I-Am and logs a decode cascade - any BACnet/IP device that listens for broadcasts hears itself; (2) a one-time *"UUID has not been set..."* BACnet/SC notice, since these IP-only examples never configure that datalink - [#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341); (3) on stack pins older than 6.0.22 only, a **continuous** `BACnetDateTime::operator =()` flood from `AddTrendLogObject` alone - [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050), non-fatal, does not stop the device working. |
+| On start-up the app prints a wall of red `Error:` lines but the device works | **Expected — mostly not your bug.** Three benign sources: (1) the device receives its **own** broadcast I-Am and logs a decode cascade - any BACnet/IP device that listens for broadcasts hears itself; (2) a one-time *"UUID has not been set..."* BACnet/SC notice, since these IP-only examples never configure that datalink - [#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341); (3) a one-off burst of `BACnetDateTime::operator =() ... Failed to set the date/time` lines at startup, and a `BACnetDateRange` pair on each Calendar `Date_List` access - [#2381](https://github.com/chipkin/cas-bacnet-stack/issues/2381) (stack pins older than 6.0.22 instead flooded these every tick - [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050)). |
 | A ReadProperty of `Log_Buffer` on either Trend Log returns `Error(OBJECT, READ_ACCESS_DENIED)` | **Expected — this property is ReadRange-only.** Use ReadRange (`RangeByPosition`), not ReadProperty. |
 | Schedule 1's remote (SCHED-E-B) write never reaches the peer | Either no peer is running at `REMOTE_DEVICE_INSTANCE` (389002 by default), or the peer is on a different UDP port on the same host - broadcast Who-Is/I-Am does not cross ports, so Device Address Binding cannot resolve it (`tests/sched_e_b_remote_peer.py` works around this with a unicast I-Am). Even when bound, the write made at startup, before binding, is dropped and never re-sent ([#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)). See [Known gaps item 2](#known-gaps-in-this-example). |
-| Calendar 1 ("Cream")'s `Date_List` reads back empty and `Present_Value` is always `false` | **Expected — inherited stack gap [#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758).** See [Known gaps item 3](#known-gaps-in-this-example). |
+| A Schedule's calendar-reference exception never fires, or a Calendar's `Date_List` reads back empty | The Calendar isn't stack-held. `BACnetStack_AddObject` alone leaves it to your callbacks, and a calendar reference never matches it. Call `BACnetStack_AddCalendarObject` after `AddObject`, then add the entries. |
 | An optional property you added a callback branch for reads back `Error: unknown-property` | You served it in a `GetProperty*` callback but never called `BACnetStack_SetPropertyEnabled` for it. The stack checks whether a property is enabled *before* calling your callback. This example shipped exactly this bug for the Device's `Description` - see [Adding an object](#adding-an-object-read-this-before-you-copy-any-pattern-in-this-file). |
 | CMake error: *"CAS BACnet Stack adapter not found under: ..."* | Submodules not initialized. Run `git submodule update --init --recursive` (or pass `-D CAS_STACK_DIR=...`). |
 | `CASBACnetStackDLL.h: No such file or directory` | Same - submodules not checked out. |

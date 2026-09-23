@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] - 2026-09-23
+
+### Changed
+
+- **Calendar 1 ("Cream") is now stack-held, and Schedule 1 ("Saffron")'s
+  exception references it.** Stack issue
+  [#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758) is fixed
+  on `issues/runbook` (IFC-045). `BACnetStack_AddCalendarObject` hands Cream
+  to the stack, which stores `Date_List` and derives `Present_Value` from
+  the device's `Local_Date`. Cream's `Date_List` holds December 25 of every
+  year (`BACnetStack_AddCalendarDateEntry`), and it is WRITABLE
+  (`SetPropertyWritable`, property 23), so clients can add holidays with
+  WriteProperty / AddListElement. Saffron's exception moved from the inline
+  `...WithCalendarEntry` form to
+  `BACnetStack_AddScheduleExceptionEventWithCalendarReference` pointing at
+  Cream. The app no longer serves Cream's `Present_Value` from
+  `GetPropertyBool`, because the stack answers first.
+- New `tests/calendar_reference_check.py`: writes today into Cream's
+  `Date_List` and checks that Cream's `Present_Value` goes TRUE, Saffron's
+  exception takes over, and Chartreuse moves to 5.0, then restores the
+  list. Verified live: Cream FALSE -> TRUE, Chartreuse 20.0 -> 5.0 -> 20.0
+  after restore (PASS).
+- **CAS BACnet Stack pinned to `issues/runbook` @ `00aa2d0e`**, ahead of
+  `6.x` @ `22ac3c98`, for the Calendar exports. It still reports 6.0.22.
+  Move back to `6.x` once #1758 lands there. #2051's stack-side change on
+  this branch is documentation only: the root cause was this example's
+  local-time window, fixed in 1.0.6.
+- **Known log noise on this pin:** a one-off startup burst of
+  `BACnetDateTime ... Failed to set the date/time` lines (bisected to stack
+  commit `4c793c15`, #2207), plus a `BACnetDateRange` pair on each Calendar
+  `Date_List` access. Filed as
+  [cas-bacnet-stack#2381](https://github.com/chipkin/cas-bacnet-stack/issues/2381).
+  TODO.md item 1.
+- TODO.md: the Calendar gap (old item 3) is removed and the items after it
+  are renumbered. TUTORIAL.md, AGENTS.md, README.md and `docs/objects.json`
+  now describe the stack-held Calendar (PICS regenerated).
+- Re-verified on this pin: Trend Log 1 / Trend Log Multiple 1 record (28 /
+  29 records), ReadPropertyMultiple of the whole Device OK, and
+  `tests/sched_e_b_remote_peer.py` PASS.
+- APP_VERSION bumped 1.0.6 -> 1.0.7.
+
 ## [1.0.6] - 2026-09-22
 
 ### Fixed

@@ -18,8 +18,9 @@ and ReadRange). It listens on **BACnet/IP (UDP 47808)** and claims only B-BC.
 - **[docs/PICS.md](docs/PICS.md)** - the Protocol Implementation Conformance
   Statement: every object, every property, and who answers it.
 
-> **Versions:** this document describes **example v1.0.6**, built and verified
-> against **CAS BACnet Stack 6.0.22** (`6.x` @ `22ac3c98`), at
+> **Versions:** this document describes **example v1.0.7**, built and verified
+> against **CAS BACnet Stack 6.0.22** (`issues/runbook` @ `00aa2d0e`, ahead of `6.x` for
+> stack-held Calendars - see `TODO.md`), at
 > **Protocol_Revision 26**, with the vendored `common/` helper at **v3.0.0**.
 > Running the example prints all three - if what it prints disagrees with this
 > line, trust the program and check `CHANGELOG.md`.
@@ -27,10 +28,7 @@ and ReadRange). It listens on **BACnet/IP (UDP 47808)** and claims only B-BC.
 > **B-BC is not fully claimable with the standard stack yet.** This example
 > implements every B-BC capability the standard CAS BACnet Stack exposes, and
 > clearly marks what it cannot do - see [TUTORIAL.md](TUTORIAL.md) and
-> [TODO.md](TODO.md). In summary: Calendar 1
-> ("Cream")'s `Date_List` cannot be populated
-> ([#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758)).
-> Schedule 1's SCHED-E-B remote write is verified on the wire, but the stack
+> [TODO.md](TODO.md). In summary: Schedule 1's SCHED-E-B remote write is verified on the wire, but the stack
 > drops the write it makes at startup, before the remote device has been
 > found ([#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)).
 
@@ -60,7 +58,7 @@ Analog Value 1           "Diamond"     (REAL, WRITABLE; intrinsic OutOfRange ala
 Notification Class 1     "Crimson"     (routes Diamond's alarms; Recipient_List WRITABLE)
 Network Port 1           "Vermilion"   (BACnet/IP - required)
 Schedule 1               "Saffron"     (drives Chartreuse locally AND a remote peer - SCHED-E-B)
-Calendar 1               "Cream"       (see TUTORIAL.md - Date_List not evaluated)
+Calendar 1               "Cream"       (stack-held Date_List, WRITABLE; drives Saffron's exception)
 File 1                   "Ivory"       (backup/restore payload - DM-BR-B)
 Trend Log 1              "Lilac"       (polls Bronze)
 Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
@@ -217,7 +215,7 @@ CMake at it: `cmake -B build -S . -D CAS_STACK_DIR=/path/to/cas-bacnet-stack`.
 Expected output:
 
 ```
-BACnet B-BC (Building Controller) Example - C++ v1.0.6
+BACnet B-BC (Building Controller) Example - C++ v1.0.7
 CAS BACnet Stack version: 6.0.22.0
 Common helper (common/) version: 3.0.0
 FYI: Listening for BACnet/IP on UDP port 47808 (Network Port 1).
