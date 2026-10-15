@@ -16,25 +16,11 @@ A side of both is not implemented. Until 1.0.8 the README and PICS ticked both; 
 "no". The customer header has the exports - this is own-scope work, e.g. a polled read of peer
 389002's Analog Output 1 feeding a local object, with a Wire Test whose peer changes the value.
 
-## 2. Stack defect found at this pin (not filed - for the series coordinator to verify and file)
+## 2. (withdrawn) Trend Log `Total_Record_Count`
 
-**Trend Log and Trend Log Multiple `Total_Record_Count` is missing.** 135-2024 Table 12-29 (Trend
-Log) and Table 12-35 (Trend Log Multiple) list `Total_Record_Count` (Unsigned32) as **R**. At
-`64b2cfac5` neither Trend Log 1 (Lilac) nor Trend Log Multiple 1 (Magenta) lists it in
-`Property_List`, and a ReadProperty answers Error `property` / `unknown-property` (class 2, code
-32), while `Record_Count` reads (9 and 10 after ~8 s). Windows STATIC build:
-
-```
-Trend Log Record_Count value=9 Total Error class=2 code=32
-TLM Record_Count value=10 Total Error class=2 code=32
-BACnetBusinessLogic.cpp(1728) - Error: Property does not exist, objectType[20], ... propertyIdentifier=[322]
-```
-
-The stack's `BACnetDBPropertyProfile` lists `totalRecordCount` among the required properties of
-both. The Event Log has the same gap (BACnetProfileExample-B-AEC-CPP `TODO.md`, where
-`SetPropertyEnabled(..., 322, true)` was tried and is refused). The discovery Wire Test cannot see
-this: it reads only what `Property_List` lists. Not bisected; the previous B-AEC notes say
-`Total_Record_Count` read 0 at `abd4cee1`, which would make it a regression - unverified.
+Not a stack defect. The probe read property 322, which is Access_Event_Tag. Total_Record_Count is
+**145**, and the stack lists it as required for Trend Log and Trend Log Multiple. A ReadProperty
+of 322 correctly answers unknown-property. Re-check 145 by hand in phase 2.
 
 ## 3. Not applicable here (checked)
 
