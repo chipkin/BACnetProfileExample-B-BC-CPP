@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - unreleased
+
+### Added
+
+- **Wire Tests run unattended and in CI.** `tests/run_wire_tests.py` runs
+  three scripts against a fresh device each: the new
+  `tests/discovery_test.py` (B-SS-CPP's discovery test with this example's
+  fifteen objects, plus B-ACC-CPP's rule that a log object's `Log_Buffer` must
+  be *refused* by ReadProperty - cl. 12.25.14, 12.30.19, 15.5.1.3.1), and the
+  two existing bacpypes3 scripts, `sched_e_b_remote_peer.py` and
+  `calendar_reference_check.py`, which used to need a hand-started device.
+  `tests/requirements.txt` names bacpypes3; `release.yml` installs it and runs
+  the Wire Tests on Linux after the smoke test. All three pass on Windows and
+  Linux.
+- `wiretest/` 0.5.0, the series' shared Wiretest Harness, vendored verbatim.
+
+### Changed
+
+- **Stack Pin** `issues/runbook` @ `00aa2d0e` (6.0.22) -> `6.x` @ `64b2cfac5`
+  (6.0.23): the stack-held Calendars reached `6.x`, so the pin is back on the
+  branch `.gitmodules` names. No API change needed.
+- **`common/` 3.0.0 -> 3.3.0** (B-SS-CPP `b640a81`, verbatim).
+- **Protocol_Revision 26 -> 30** (the stack's default at the new pin; the
+  README said 26, AGENTS.md and comments said 24).
+- **Segmentation is now supported** (`segmented-both`, `Max_Segments_Accepted`
+  16, `APDU_Segment_Timeout` 5000 ms): the stack's customer build compiles
+  segmentation in from this pin (stack #2992). `docs/PICS.md` section 5 updated.
+- **DS-RP-A and DS-RPM-A are no longer claimed.** The README and PICS ticked
+  them, but nothing in `main.cpp` initiates ReadProperty or
+  ReadPropertyMultiple (the PICS services table already said "no"). Both are
+  required for B-BC (135-2024 Annex L), so the README's status note now says
+  the example is not yet BIBB-conformant; TODO.md item 1.
+- **TODO.md rewritten against the new pin.** Every stack issue it cited is
+  closed and re-checked: #2050 and #2381 (log noise - none), #2341 (UUID line -
+  gone), #2340 (Network Port reads - discovery passes), #2343 (the remote write
+  made before 389002 is bound is now kept until it binds - checked on the wire
+  with a peer that only sends an I-Am). New, not filed: Trend Log and Trend
+  Log Multiple lack the required `Total_Record_Count` (Error unknown-property;
+  the PICS row is now flagged).
+- Backup and restore checked by hand at the new pin (every step of
+  STARTBACKUP .. ENDRESTORE acknowledged) - the README said it had not been
+  re-tested.
+- `main.cpp` comments said "A B-AAC must" where they meant B-BC.
+- README, AGENTS.md and PICS version lines: stack 6.0.23, `common/` 3.3.0,
+  Protocol_Revision 30. The series profile table is re-synced. APP_VERSION
+  1.0.7 -> 1.0.8.
+
 ## [1.0.7] - 2026-09-23
 
 ### Changed

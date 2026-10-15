@@ -111,6 +111,25 @@ jobs:
           cat "${{ matrix.metrics }}"
           { echo '### metrics (${{ matrix.os }})'; echo '```json'; cat "${{ matrix.metrics }}"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      # The Wire Tests (tests/README.md): discovery (a Python client reads every listed property
+      # of every object; any Error, Reject or Abort fails it), SCHED-E-B (a Python peer playing
+      # device 389002 must receive Schedule 1's remote write) and the Calendar -> Schedule
+      # exception. The last two use bacpypes3; run_wire_tests.py starts a fresh device for each.
+      - name: Set up Python (for the Wire Tests)
+        if: runner.os == 'Linux'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Wire Test dependencies
+        if: runner.os == 'Linux'
+        run: python -m pip install -r tests/requirements.txt
+
+      - name: Wire Tests (discovery, SCHED-E-B remote write, Calendar exception)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python tests/run_wire_tests.py --exe "${{ matrix.exe }}"
+
       - name: Package
         shell: bash
         run: |

@@ -1,0 +1,1 @@
+bacpypes3>=0.0.100  # sched_e_b_remote_peer.py and calendar_reference_check.py (the Peer and the client)

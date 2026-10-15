@@ -1,167 +1,77 @@
-# TODO — known gaps (all verified against the pinned stack source and/or the wire, not assumed)
+# TODO - known gaps (each checked against the pinned stack source and/or the wire, not assumed)
 
-Stack pin: `00aa2d0e` (`issues/runbook`, reports 6.0.22, 2026-09-23). This is deliberately ahead of
-the `6.x` branch `.gitmodules` names (`6.x` @ `22ac3c98`), to pick up stack-held Calendar objects
-([#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758), IFC-045) before they reach
-`6.x`. Move back to a `6.x` commit once they do. Items verified on `22ac3c98` say so; everything
-was re-checked live on `00aa2d0e`.
+Stack pin: `64b2cfac5` (`6.x`, 2026-10-15, reports 6.0.23). Re-checked 2026-10-15 when the pin
+moved from `00aa2d0e` (`issues/runbook`, 6.0.22). The pin is back on `6.x`: the stack-held
+Calendars this example needed (#1758) reached `6.x`.
 
-Each open item has a tracking issue in this repo:
-[#18](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/18) (item 1),
-[#15](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/15) (item 5),
-[#16](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/16) (item 6).
+This example is **not yet BIBB-conformant** and **not Profile-functional** (series
+`docs/GLOSSARY.md`). The gaps below are this example's own scope unless they say otherwise.
 
-## Fixed on earlier pins (verified live against `a8d3b6bf`, re-checked on `22ac3c98`)
+## 1. DS-RP-A and DS-RPM-A: nothing initiates ReadProperty or ReadPropertyMultiple
 
-- **[#2163](https://github.com/chipkin/cas-bacnet-stack/issues/2163)** (`Device_Address_Binding`'s
-  misleading "not yet implemented" FYI) — gone. `ReadProperty(Device.Device_Address_Binding)` now
-  returns a clean 18-byte ComplexACK with zero log output.
-- **[#2164](https://github.com/chipkin/cas-bacnet-stack/issues/2164)** (`BuildArrayProperty`
-  aborting instead of erroring) and **[#2175](https://github.com/chipkin/cas-bacnet-stack/issues/2175)**
-  (`ReadPropertyMultiple` aborting the whole response on one bad property) — both closed upstream;
-  `ReadPropertyMultiple(ALL)` on the Device object returns a full 619-byte ComplexACK.
-- **[#2165](https://github.com/chipkin/cas-bacnet-stack/issues/2165)** (generic "Unable to decode
-  the APDU" logged for an already-classified rejection) — closed upstream; not independently
-  re-verified this pass (no easy way to distinguish its absence from "didn't trigger this test"),
-  but the fix landed in the same batch as #2163/#2164 and touches the same call sites documented
-  in that issue.
-- **Bonus, not previously tracked here:** the `AddTrendLogObject` log flood (item 1 below,
-  `chipkin/cas-bacnet-stack#2050`) is also gone with this pin — 0 occurrences of "Failed to set the
-  date/time" over a 12-second live run, where the old pin flooded from the very first tick. #2050
-  itself is still open upstream (likely fixed as a side effect of unrelated work in the same batch
-  of commits, not by a change that references the issue directly) - see item 1's update below.
-- **[#2178](https://github.com/chipkin/cas-bacnet-stack/issues/2178)** (`Schedule.Weekly_Schedule`
-  and `Network_Port.IP_DNS_Server` both Aborting instead of returning a value/Error) — fixed,
-  closed. `IP_DNS_Server` no longer Aborts, but now surfaces a narrower gap of its own — see item 5
-  (`chipkin/cas-bacnet-stack#2196`).
-- **[#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)** (Trend Log 1 "Lilac"'s
-  `Record_Count` stuck at 0) — **not a stack defect.** The example built the
-  `SetTrendLogStartStopTime` window from local time, but the stack compares it against UTC, so
-  off-UTC hosts never logged. Fixed in this repo (`gmtime`, #9). Re-verified on `22ac3c98`.
-- **[#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758)** (Calendar `Date_List` had no
-  customer-facing storage, so a Schedule calendar-reference exception never matched) — fixed on
-  `issues/runbook` by stack-held Calendars (IFC-045). Calendar 1 ("Cream") is now stack-held with a
-  December 25 entry and a writable `Date_List`, and Schedule 1's exception references it.
-  Verified live: see CHANGELOG 1.0.7.
+135-2024 Annex L, the controller profiles' BIBB table, gives B-BC `DS-RP-A,B` and `DS-RPM-A,B`,
+and L.4.1 lists "Ability to retrieve the values of BACnet objects from other devices". There is
+no `BACnetStack_SendReadProperty` (or `SendReadPropertyMultiple`) anywhere in `main.cpp`, so the
+A side of both is not implemented. Until 1.0.8 the README and PICS ticked both; they now say
+"no". The customer header has the exports - this is own-scope work, e.g. a polled read of peer
+389002's Analog Output 1 feeding a local object, with a Wire Test whose peer changes the value.
 
-## 1. "Failed to set the date/time" log lines — the #2050 flood is fixed, but a new startup burst is back on this pin
+## 2. Stack defect found at this pin (not filed - for the series coordinator to verify and file)
 
-**On the current pin (`00aa2d0e`):** 8 pairs of `BACnetDateTime ... Failed to set the date/time`
-lines at startup, then silence. This is not the old per-tick flood. In addition, every access to
-Calendar 1's `Date_List` logs one `BACnetDateRange ... Failed to set the start/end date` pair.
-Behaviour is correct throughout. `git bisect` (same example source at every step) puts the startup
-burst at stack commit `4c793c15` (#2207, SC hub-connection timestamps): `BACnetSCHubConnection::Reset()`
-assigns an all-unspecified `BACnetDateTime`, and `operator=` rejects unspecified fields. The SC
-data link builds those objects even on this BACnet/IP-only device. The `Date_List` lines are the
-same pattern in the new Calendar code.
-**Filed:** [chipkin/cas-bacnet-stack#2381](https://github.com/chipkin/cas-bacnet-stack/issues/2381).
-Tracked here as [#18](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/18).
-
-**The original #2050 flood (below) stays fixed:**
-**Fixed.** 0 occurrences of the flood over a ~30-second live run against `22ac3c98` (6.0.22). It
-was already gone on `a8d3b6bf`. #2050 is still open upstream (see the re-verification comment
-there) because no single commit names it. Tracked to closure by
-[#13](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/13). The original report is
-kept below in case it regresses on a future pin.
-
-Calling `BACnetStack_AddTrendLogObject` — by itself, independent of `SetTrendLogTypeToPolled`,
-`SetTrendLogStartStopTime`, or Trend Log Multiple — makes every `BACnetStack_Tick()` print:
+**Trend Log and Trend Log Multiple `Total_Record_Count` is missing.** 135-2024 Table 12-29 (Trend
+Log) and Table 12-35 (Trend Log Multiple) list `Total_Record_Count` (Unsigned32) as **R**. At
+`64b2cfac5` neither Trend Log 1 (Lilac) nor Trend Log Multiple 1 (Magenta) lists it in
+`Property_List`, and a ReadProperty answers Error `property` / `unknown-property` (class 2, code
+32), while `Record_Count` reads (9 and 10 after ~8 s). Windows STATIC build:
 
 ```
-::CASBACnetStack::BACnetDateTime::operator =() ... Error: Failed to set the date
-::CASBACnetStack::BACnetDateTime::operator =() ... Error: Failed to set the time
+Trend Log Record_Count value=9 Total Error class=2 code=32
+TLM Record_Count value=10 Total Error class=2 code=32
+BACnetBusinessLogic.cpp(1728) - Error: Property does not exist, objectType[20], ... propertyIdentifier=[322]
 ```
 
-starting from the very first tick, continuously, for the life of the process. Isolated by
-bisection across 5 rebuilt/retested binary configurations (full example down to bare
-`AddTrendLogObject` alone; removing it silences the flood entirely). This is the same log-line
-signature and trigger shape B-ACC already found and filed for `AddEventLogObject`
-([#2045](https://github.com/chipkin/cas-bacnet-stack/issues/2045)) — same class of defect, but
-Trend Log's own independent code path, not Event Log's.
+The stack's `BACnetDBPropertyProfile` lists `totalRecordCount` among the required properties of
+both. The Event Log has the same gap (BACnetProfileExample-B-AEC-CPP `TODO.md`, where
+`SetPropertyEnabled(..., 322, true)` was tried and is refused). The discovery Wire Test cannot see
+this: it reads only what `Property_List` lists. Not bisected; the previous B-AEC notes say
+`Total_Record_Count` read 0 at `abd4cee1`, which would make it a regression - unverified.
 
-The device continues to function correctly despite the flood — Who-Is/I-Am, ReadProperty,
-WriteProperty and TX/RX were all verified live with the flood printing continuously — so this
-looks like noisy internal logging rather than a functional break, matching #2045's own conclusion.
+## 3. Not applicable here (checked)
 
-**Filed:** [chipkin/cas-bacnet-stack#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050).
+- **#2036** (Life Safety Point/Zone exports, open) - this example has no Life Safety objects.
+- **#2044, #2046** (access-family, open) - this example has no access-control objects.
 
-## 2. SCHED-E-B remote fan-out — wire-verified; the startup write is dropped before binding
+## Closed upstream - re-checked at this pin and removed from this file
 
-**Verified on the wire against `22ac3c98` (6.0.22)** — closes
-[#6](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/6).
+| Issue | What it was | At `64b2cfac5` |
+|---|---|---|
+| #2050 | `AddTrendLogObject` per-tick "Failed to set the date/time" flood | closed 2026-09-24; 0 such lines in 8 s |
+| #2381 | startup burst of the same lines + a `BACnetDateRange` pair per `Date_List` read | closed 2026-09-23; 0 lines with three `Date_List` reads |
+| #2341 | BACnet/SC "UUID has not been set" line on an IP-only device | closed 2026-09-23; not printed |
+| #2343 | Schedule's remote write dropped for good if 389002 was not yet bound | closed 2026-09-26; fixed - see below |
+| #2340 (was #2196) | Network Port `IP_DNS_Server` / `FD_Subscription_Lifetime` unreadable | closed 2026-10-01; both read (discovery Wire Test) |
+| #2178 | `Weekly_Schedule` / `IP_DNS_Server` Abort | closed; read (discovery Wire Test) |
+| #2051 | Trend Log `Record_Count` stuck at 0 | not a stack defect (UTC window, fixed here in 1.0.6); `Record_Count` climbs |
+| #1758 | Calendar `Date_List` storage | in `6.x`; `calendar_reference_check.py` passes |
+| #2163, #2164, #2165, #2175 | log noise / Abort on bad properties | closed |
 
-Schedule 1 ("Saffron")'s `List_Of_Object_Property_References` has two entries, a local one
-(Chartreuse) and a remote one (`REMOTE_DEVICE_INSTANCE` 389002, Analog Output 1). Earlier sessions
-couldn't wire-test the remote entry on one host: two instances on different UDP ports never see
-each other's broadcast Who-Is/I-Am. `tests/sched_e_b_remote_peer.py` gets around that. It plays
-device 389002 (bacpypes3, commandable AO 1, its own port) and sends B-BC a **unicast** I-Am, which
-the stack's DAB accepts. It then writes Schedule 1's `Schedule_Default` to force a re-evaluation.
-Result, from B-BC's own TX/RX log and the peer's state:
+**#2343, checked on the wire.** A bacpypes3 peer playing 389002 that only sends B-BC a unicast
+I-Am (no Schedule_Default write) now receives `WriteProperty Analog_Output 1.Present_Value`
+20.0 @ priority 8; B-BC logs "SendExternalWriteProperty: device instance=[389002] not resolved in
+DAB - the write is kept until it binds", then sends it once the I-Am arrives. Checked by hand on
+Windows (a scratch script, not committed); turning it into a Failure Mode Wire Test is open work.
 
-```
-RX ... from 127.0.0.1:47902 - ConfirmedRequest: WriteProperty Schedule 1.Schedule_Default
-WriteProperty: Analog Output 1 (Chartreuse) <- 42.50 @ priority 8
-TX 26 bytes to 127.0.0.1:47902 - ConfirmedRequest: WriteProperty Analog_Output 1.Present_Value
-RX 9 bytes from 127.0.0.1:47902 - SimpleACK: WriteProperty
-peer AO1 Priority_Array: [(8, 42.5)]  ->  RESULT: PASS
-```
+## Checked by hand at this pin (not yet Wire Tests)
 
-**Remaining stack gap:** the Schedule's first evaluation at startup happens before 389002 is
-bound. The stack logs `SendExternalWriteProperty: device instance=[389002] not resolved in DAB -
-skipping the external write`, starts the Who-Is only after that, and never re-sends the skipped
-value once the I-Am arrives. The remote target only catches up at the next `Present_Value` change.
-**Filed:** [chipkin/cas-bacnet-stack#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343).
-Nothing to change on this side. This example's wiring is correct.
+On 2026-10-15, Windows build: ReinitializeDevice STARTBACKUP (SimpleACK, `System_Status`
+backup-in-progress), AtomicReadFile of File 1, ENDBACKUP, STARTRESTORE, AtomicWriteFile of 15
+octets, ENDRESTORE - every step acknowledged, the four backup/restore callbacks ran, and File 1
+reads back the restored content.
 
-## 3. F-REINIT / #2036 (Life Safety) — confirmed not applicable
+## The example's own next steps (phase 2)
 
-B-LSC's own port of this callback (`implement-lsc` branch, unmerged) states in its file header:
-"F-REINIT (DM-RD-B): unchanged from B-AAC/B-ASC" — this example's `ReinitializeDevice` (inherited
-from the B-AAC seed, extended here only with the DM-BR-B backup/restore states 2–6, following
-B-ACC's pattern) is therefore already the same code B-LSC itself uses for COLDSTART/WARMSTART.
-This example carries **no** Life Safety Point/Zone objects, so cas-bacnet-stack#2036 (a Life Safety
-Point/Zone-specific defect) does not apply here — confirmed by inspection, not assumed.
-
-## 4. Access-family gaps (#2044, #2046) — confirmed not applicable
-
-This profile carries no Access Door/Point/Credential/Rights/Zone objects, so the AE-AC-B
-notification-generation gap (#2044) and the constructed-property read gaps (#2046) B-ACC found do
-not apply to this example.
-
-## 5. Network Port 1's `Property_List` advertises two properties it can't actually answer
-
-Split from [#2178](https://github.com/chipkin/cas-bacnet-stack/issues/2178) (that issue's own
-Abort-PDU bugs — `Schedule.Weekly_Schedule` and `Network_Port.IP_DNS_Server` both aborting — are
-fixed; re-verified live against this repo's current pin). What's left, filed as
-[chipkin/cas-bacnet-stack#2196](https://github.com/chipkin/cas-bacnet-stack/issues/2196) and
-re-confirmed against `a8d3b6bf`. **#2196 was then closed upstream, but both symptoms still
-reproduce unchanged on `22ac3c98` (6.0.22)** — refiled as
-[chipkin/cas-bacnet-stack#2340](https://github.com/chipkin/cas-bacnet-stack/issues/2340):
-
-| Property | ID | Read returns |
-|---|---:|---|
-| `IP_DNS_Server` | 406 | `Error (property, unknown-property)` |
-| `FD_Subscription_Lifetime` | 419 | `Error (object, read-access-denied)` |
-
-Both are `Property_List`-generated by the stack (not app-controlled — this example never enables
-or serves either), so there's nothing to change on this side. `FD_Bbmd_Address` (418) returning
-`Error (property, value-not-initialized)` is NOT part of this gap — that's the correct answer for
-a device with no BBMD configured.
-
-## 6. A BACnet/SC "UUID has not been set" error is logged at startup
-
-Every start prints this line once, even though this example is BACnet/IP-only and never touches the
-BACnet/SC API:
-
-```
-::CASBACnetStack::BACnetDataLinkSC::Loop() ... Error: UUID has not been set.  A UUID must be set for the BACnetSC device to start.
-```
-
-`BACnetDataLinkLayer::Loop()` ticks SC data-link instance 0 whenever the stack is compiled with
-`STACK_OPTION_DATA_LINK_LAYER_SC`, whether or not the application configured SC. The error latches
-after one line and BACnet/IP keeps working normally (verified live on `22ac3c98`). It's harmless
-noise in the same class as #2050. Don't set a Device UUID just to silence it: this example has no
-SC port, and setting one would only move SC further through its startup checks.
-
-**Filed:** [chipkin/cas-bacnet-stack#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341).
-Tracked here as [#16](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/issues/16).
+- Item 1 (DS-RP-A / DS-RPM-A).
+- Failure Mode Wire Tests: the #2343 case above (peer bound after start-up), and a peer that
+  rejects the remote write or never answers.
+- A Python recipient that receives Diamond's OffNormal notification and acknowledges it.
+- A time-varying Bronze, so the Trend Logs record something that changes.

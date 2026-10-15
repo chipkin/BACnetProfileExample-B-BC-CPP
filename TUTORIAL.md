@@ -189,26 +189,24 @@ with reproduction steps.
    same class of defect as `AddEventLogObject`'s
    [#2045](https://github.com/chipkin/cas-bacnet-stack/issues/2045). Filed as
    [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050).
-   **Fixed since 6.0.22:** no per-tick flood. The current `issues/runbook`
-   pin instead logs a one-off burst of the same lines at startup, plus one
-   `BACnetDateRange ... start/end date` pair per Calendar `Date_List` access.
-   It's harmless, and bisected and filed as
-   [#2381](https://github.com/chipkin/cas-bacnet-stack/issues/2381).
-2. **Schedule 1's SCHED-E-B remote write works, but the first write can be
-   lost at startup.** `List_Of_Object_Property_References` has two entries,
+   **Fixed:** no per-tick flood since 6.0.22, and the later startup burst
+   ([#2381](https://github.com/chipkin/cas-bacnet-stack/issues/2381)) is gone
+   at `64b2cfac5` too. **Open at this pin:** both Trend Logs lack the required
+   `Total_Record_Count` (a stack defect, `TODO.md`).
+2. **Schedule 1's SCHED-E-B remote write works, including the first write at
+   startup.** `List_Of_Object_Property_References` has two entries,
    because each `AddScheduleObjectPropertyReference` call APPENDS: a local one
    at Chartreuse and a remote one at a peer device's Analog Output 1 (default
-   instance 389002). Verified on the wire on 6.0.22 with
-   `tests/sched_e_b_remote_peer.py`. The peer sends B-BC a unicast I-Am, so
+   instance 389002). The Wire Test `tests/sched_e_b_remote_peer.py` checks it
+   on every run. The peer sends B-BC a unicast I-Am, so
    Device Address Binding resolves it without a BBMD, even with both on one
    host on different ports. It then changes Schedule 1's `Schedule_Default`,
    and B-BC sends `WriteProperty Analog_Output 1.Present_Value` @ priority 8
-   to the peer, which SimpleACKs. **Stack gap:** the very first evaluation at
-   startup runs before the peer is bound, so the stack logs *"not resolved in
-   DAB - skipping the external write"* and never re-sends that value once the
-   peer binds
-   ([#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)). The
-   remote target catches up at the Schedule's next `Present_Value` change.
+   to the peer, which SimpleACKs. The very first evaluation at startup runs
+   before the peer is bound; the stack now logs *"not resolved in DAB - the
+   write is kept until it binds"* and sends it once the peer's I-Am arrives
+   ([#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343), fixed at
+   `64b2cfac5`; checked by hand).
 
 ## Reviewing your device
 
@@ -264,7 +262,7 @@ in `accepted`, comes out as a ⚠ row - that is a defect, not a feature.
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| On start-up the app prints a wall of red `Error:` lines but the device works | **Expected — mostly not your bug.** Three benign sources: (1) the device receives its **own** broadcast I-Am and logs a decode cascade - any BACnet/IP device that listens for broadcasts hears itself; (2) a one-time *"UUID has not been set..."* BACnet/SC notice, since these IP-only examples never configure that datalink - [#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341); (3) a one-off burst of `BACnetDateTime::operator =() ... Failed to set the date/time` lines at startup, and a `BACnetDateRange` pair on each Calendar `Date_List` access - [#2381](https://github.com/chipkin/cas-bacnet-stack/issues/2381) (stack pins older than 6.0.22 instead flooded these every tick - [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050)). |
+| On start-up the app prints a few red `Error:` lines but the device works | **Expected - not your bug.** The device receives its **own** broadcast I-Am and logs a decode cascade - any BACnet/IP device that listens for broadcasts hears itself. (The BACnet/SC UUID notice, #2341, and the date/time log bursts, #2381 / #2050, are fixed at this pin.) |
 | A ReadProperty of `Log_Buffer` on either Trend Log returns `Error(OBJECT, READ_ACCESS_DENIED)` | **Expected — this property is ReadRange-only.** Use ReadRange (`RangeByPosition`), not ReadProperty. |
 | Schedule 1's remote (SCHED-E-B) write never reaches the peer | Either no peer is running at `REMOTE_DEVICE_INSTANCE` (389002 by default), or the peer is on a different UDP port on the same host - broadcast Who-Is/I-Am does not cross ports, so Device Address Binding cannot resolve it (`tests/sched_e_b_remote_peer.py` works around this with a unicast I-Am). Even when bound, the write made at startup, before binding, is dropped and never re-sent ([#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)). See [Known gaps item 2](#known-gaps-in-this-example). |
 | A Schedule's calendar-reference exception never fires, or a Calendar's `Date_List` reads back empty | The Calendar isn't stack-held. `BACnetStack_AddObject` alone leaves it to your callbacks, and a calendar reference never matches it. Call `BACnetStack_AddCalendarObject` after `AddObject`, then add the entries. |

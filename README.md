@@ -1,9 +1,9 @@
 # BACnet B-BC (Building Controller) - C++ example
 
-A tutorial example showing how to implement **as much of the BACnet B-BC
-(Building Controller)** device profile as the
-[CAS BACnet Stack](https://store.chipkin.com/services/stacks/bacnet-stack)
-supports today, in C++. This is the largest single profile in the CAS BACnet
+A tutorial example showing how to implement **most of the BACnet B-BC
+(Building Controller)** device profile with the
+[CAS BACnet Stack](https://store.chipkin.com/services/stacks/bacnet-stack), in
+C++ (what is missing is in the status note below). This is the largest single profile in the CAS BACnet
 Stack example set: commandable outputs, DeviceCommunicationControl, intrinsic
 alarming with a writable event-recipient list, time synchronisation,
 ReinitializeDevice, Backup and Restore, a Schedule that writes a **remote**
@@ -18,19 +18,21 @@ and ReadRange). It listens on **BACnet/IP (UDP 47808)** and claims only B-BC.
 - **[docs/PICS.md](docs/PICS.md)** - the Protocol Implementation Conformance
   Statement: every object, every property, and who answers it.
 
-> **Versions:** this document describes **example v1.0.7**, built and verified
-> against **CAS BACnet Stack 6.0.22** (`issues/runbook` @ `00aa2d0e`, ahead of `6.x` for
-> stack-held Calendars - see `TODO.md`), at
-> **Protocol_Revision 26**, with the vendored `common/` helper at **v3.0.0**.
+> **Versions:** this document describes **example v1.0.8**, built and verified
+> against **CAS BACnet Stack 6.0.23** (`6.x` @ `64b2cfac5`), at
+> **Protocol_Revision 30**, with the vendored `common/` helper at **v3.3.0**.
 > Running the example prints all three - if what it prints disagrees with this
 > line, trust the program and check `CHANGELOG.md`.
 
-> **B-BC is not fully claimable with the standard stack yet.** This example
-> implements every B-BC capability the standard CAS BACnet Stack exposes, and
-> clearly marks what it cannot do - see [TUTORIAL.md](TUTORIAL.md) and
-> [TODO.md](TODO.md). In summary: Schedule 1's SCHED-E-B remote write is verified on the wire, but the stack
-> drops the write it makes at startup, before the remote device has been
-> found ([#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)).
+> **Status: not yet BIBB-conformant, not Profile-functional.** Two BIBBs a
+> B-BC requires are missing: **DS-RP-A and DS-RPM-A** - nothing in this example
+> *reads* another device's objects (135-2024 L.4.1: "Ability to retrieve the
+> values of BACnet objects from other devices"). The stack has the calls; this
+> example does not use them yet. What does work is proven by the
+> [Wire Tests](#wire-tests): every listed property reads, Schedule 1 writes a
+> remote peer's Analog Output 1, and the stack-held Calendar drives Schedule 1's
+> exception. One stack gap at this pin: the Trend Logs' required
+> `Total_Record_Count` is missing. See [TODO.md](TODO.md).
 
 ## What is a B-BC (Building Controller) profile?
 
@@ -38,7 +40,7 @@ A B-BC is the flagship BACnet controller: it serves and commands data,
 **generates and acknowledges alarms**, runs a **Schedule** that can write a
 **remote** device's object, **trends** values over time, **synchronises time**,
 accepts **DeviceCommunicationControl** and **ReinitializeDevice**, and supports
-**Backup and Restore**. Required BIBBs at Protocol_Revision 24:
+**Backup and Restore**. Required BIBBs (135-2024 Annex L):
 `DS-RP-A,B, DS-RPM-A,B, DS-WP-A,B, DS-WPM-B; AE-N-I-B, AE-ACK-B, AE-INFO-B,
 AE-CRL-B; SCHED-E-B; T-VMT-I-B, T-ATR-B; DM-DDB-A,B, DM-DOB-B, DM-DCC-B,
 DM-TS-B (or DM-UTC-B), DM-RD-B, DM-BR-B`. AE-ESUM-B (GetAlarmSummary) is
@@ -70,19 +72,19 @@ Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 
 | BIBB | Description | Supported |
 |------|-------------|:---------:|
-| DS-RP-A | Data Sharing - ReadProperty - A | ✅ |
+| DS-RP-A | Data Sharing - ReadProperty - A | ❌ not yet - nothing initiates ReadProperty ([TODO.md](TODO.md)) |
 | DS-RP-B | Data Sharing - ReadProperty - B | ✅ |
-| DS-RPM-A | Data Sharing - ReadPropertyMultiple - A | ✅ |
+| DS-RPM-A | Data Sharing - ReadPropertyMultiple - A | ❌ not yet - nothing initiates ReadPropertyMultiple ([TODO.md](TODO.md)) |
 | DS-RPM-B | Data Sharing - ReadPropertyMultiple - B | ✅ |
-| DS-WP-A | Data Sharing - WriteProperty - A | ✅ |
+| DS-WP-A | Data Sharing - WriteProperty - A | ✅ (Schedule 1's remote write - the only WriteProperty it initiates) |
 | DS-WP-B | Data Sharing - WriteProperty - B | ✅ |
 | DS-WPM-B | Data Sharing - WritePropertyMultiple - B | ✅ |
 | AE-N-I-B | Alarm and Event - Notification Internal - B | ✅ |
 | AE-ACK-B | Alarm and Event - ACK - B | ✅ |
 | AE-INFO-B | Alarm and Event - Information - B | ✅ |
 | AE-CRL-B | Alarm and Event - Recipient List - B | ✅ |
-| SCHED-E-B | Scheduling - External - B | ✅ (local and remote writes wire-verified; the stack drops the startup write made before the remote device is bound, [#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343) - see [TUTORIAL.md](TUTORIAL.md)) |
-| T-VMT-I-B | Trending - Viewing and Modifying Trends - Internal - B | ✅ (Trend Log Multiple; plain Trend Log has a known gap - see [TUTORIAL.md](TUTORIAL.md)) |
+| SCHED-E-B | Scheduling - External - B | ✅ (local and remote writes: Wire Test `sched_e_b_remote_peer.py`; a write made before the remote device is bound is now kept until it binds, stack #2343 fixed) |
+| T-VMT-I-B | Trending - Viewing and Modifying Trends - Internal - B | ✅ with a stack gap: `Total_Record_Count` is missing on both Trend Logs at this pin ([TODO.md](TODO.md)) |
 | T-ATR-B | Trending - Automated Trend Retrieval - B | ✅ (via ReadRange on Trend Log Multiple) |
 | DM-DDB-A | Device Management - Dynamic Device Binding - A | ✅ |
 | DM-DDB-B | Device Management - Dynamic Device Binding - B | ✅ |
@@ -158,6 +160,9 @@ This is a **self-contained** project. It ships:
 - `common/` - the shared helper (UDP, callbacks, CLI, keyboard) vendored in.
 - `CMakeLists.txt` - the build, the same on Windows, Linux, and macOS.
 - `docs/PICS.md` - the conformance statement.
+- `tests/` - the Wire Tests (see [Wire Tests](#wire-tests)), and `wiretest/`, the
+  series' shared Python harness the discovery test is written against
+  (vendored, like `common/`).
 - `submodules/cas-bacnet-stack/` - the **CAS BACnet Stack as a git submodule**
   (private; requires a license - see above). Its sources are compiled into the
   executable, so there is no library or DLL to build, ship, or install.
@@ -215,9 +220,9 @@ CMake at it: `cmake -B build -S . -D CAS_STACK_DIR=/path/to/cas-bacnet-stack`.
 Expected output:
 
 ```
-BACnet B-BC (Building Controller) Example - C++ v1.0.7
-CAS BACnet Stack version: 6.0.22.0
-Common helper (common/) version: 3.0.0
+BACnet B-BC (Building Controller) Example - C++ v1.0.8
+CAS BACnet Stack version: 6.0.23.0
+Common helper (common/) version: 3.3.0
 FYI: Listening for BACnet/IP on UDP port 47808 (Network Port 1).
 TX 21 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1)
 FYI: Device 389005 ("Chipkin Example B-BC") ready. Vendor ID 389. Press 'h' for help.
@@ -231,11 +236,11 @@ and `TX ... bytes to ...` lines showing the traffic.
 The device listens on UDP **47808** (BACnet/IP). Allow that port through your
 firewall. To use a different port, pass `--port` (see below).
 
-> **A wall of red `Error:` lines at start-up is expected and is not your bug** -
-> it is the stack's own debug logging (the device hearing its own broadcast I-Am,
-> a one-time BACnet/SC UUID notice, and - once trending starts - a continuous,
-> non-fatal internal log flood, [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050)).
-> [TUTORIAL.md](TUTORIAL.md#troubleshooting) explains all three.
+> **A few red `Error:` lines at start-up are expected and are not your bug** -
+> it is the stack's own debug logging of the device hearing its own broadcast
+> I-Am. [TUTORIAL.md](TUTORIAL.md#troubleshooting) explains it. (The log floods
+> and the BACnet/SC UUID notice earlier versions warned about - stack #2050,
+> #2381, #2341 - are fixed at this pin.)
 
 ### Command-line options
 
@@ -264,11 +269,11 @@ With the
 [CAS BACnet Explorer](https://store.chipkin.com/products/tools/cas-bacnet-explorer)
 or any BACnet client:
 
-1. **Discover** - Who-Is -> I-Am from `389005` (vendor `389`). *Verified live.*
+1. **Discover** - Who-Is -> I-Am from `389005` (vendor `389`). *Wire Test.*
 2. **Object model** - fifteen objects incl. Analog Value "Diamond", Notification
    Class "Crimson", Schedule "Saffron", Calendar "Cream", File "Ivory", Trend Log
    "Lilac" and Trend Log Multiple "Magenta". `Object_List` lists them all;
-   `Protocol_Revision` = 26. *Verified live.*
+   `Protocol_Revision` = 30. *Wire Test.*
 3. **Command an output (F-OUTPUTS)** - WriteProperty Analog Output 1
    (Chartreuse) `Present_Value` at a priority; read it back. *Verified live.*
 4. **Fire an alarm** - WriteProperty Diamond `Present_Value` = `95`; read
@@ -283,8 +288,9 @@ or any BACnet client:
    Lilac's `Record_Count` climbs too. *Verified live.*
 7. **Backup (DM-BR-B)** - AtomicWriteFile then AtomicReadFile against Ivory;
    round-trip the bytes; drive ReinitializeDevice through STARTBACKUP/ENDBACKUP.
-   *File_Size/Archive verified live; the Atomic*File round-trip and the
-   ReinitializeDevice backup states were not re-tested this session.*
+   *Checked by hand 2026-10-15: STARTBACKUP, AtomicReadFile, ENDBACKUP,
+   STARTRESTORE, AtomicWriteFile, ENDRESTORE all acknowledged; File 1 reads
+   back the restored content.*
 8. **Device management** - DeviceCommunicationControl `disable-initiation` /
    `enable`; ReinitializeDevice `WARMSTART`; TimeSynchronization - each
    accepted (not re-tested this session).
@@ -292,11 +298,36 @@ or any BACnet client:
 For a property-by-property review against the conformance statement, see
 [TUTORIAL.md](TUTORIAL.md).
 
+## Wire Tests
+
+Python BACnet peers drive the running example over BACnet/IP from outside it:
+
+- `tests/discovery_test.py` - steps 1 and 2 above, the way a client discovers a
+  device: Who-Is, `Object_List`, then every object's `Property_List` and a
+  ReadProperty of every listed property; every read must return a value (the
+  Trend Logs' `Log_Buffer` must instead be refused - it is ReadRange only).
+  Python 3 standard library only.
+- `tests/sched_e_b_remote_peer.py` - plays peer device 389002 and checks that
+  Schedule 1 writes its Analog Output 1 (SCHED-E-B, DS-WP-A).
+- `tests/calendar_reference_check.py` - adds today to Calendar 1's `Date_List`
+  and checks Cream -> Saffron -> Chartreuse, then restores it.
+
+The last two use bacpypes3 (`pip install -r tests/requirements.txt`).
+`tests/run_wire_tests.py` runs all three, starting a fresh device for each:
+
+```bash
+python3 tests/run_wire_tests.py --exe build/BACnetExampleBBC          # Linux/macOS
+python tests\run_wire_tests.py --exe build\Release\BACnetExampleBBC.exe   # Windows
+```
+
+It ends with `ALL WIRE TESTS PASSED` (exit 0). CI runs it on Linux after the
+smoke test. [tests/README.md](tests/README.md) says what each check proves.
+
 
 ## The BACnet profile example series
 
 <!-- PROFILE-TABLE:BEGIN (generated from cas-bacnet-stack-examples/docs/profile-table.md - do not edit here) -->
-The CAS BACnet Stack supports every standardized device profile in ASHRAE 135-2024 Annex L, and there is one example repository per profile. Pick the profile your device claims, then the language you build in. "Ask" means the example hasn't been built yet for that language - [contact Chipkin](https://store.chipkin.com/contact-us) if you need one.
+There is one example repository per standardized device profile in ASHRAE 135-2024 Annex L. An example marked ⛔ is blocked: the stack cannot yet perform that profile's function through its customer interface, and the example's README says what it does today. Pick the profile your device claims, then the language you build in. "Ask" means the example hasn't been built yet for that language - [contact Chipkin](https://store.chipkin.com/contact-us) if you need one.
 
 ### Controllers (Annex L.4)
 
@@ -319,8 +350,8 @@ The CAS BACnet Stack supports every standardized device profile in ASHRAE 135-20
 
 | Profile | C++ | Node.js | C# | Rust | Python | Go |
 |---|---|---|---|---|---|---|
-| **B-ACC** Access Control Controller | [B-ACC-CPP](https://github.com/chipkin/BACnetProfileExample-B-ACC-CPP) | Ask | Ask | Ask | Ask | Ask |
-| **B-AACC** Advanced Access Control Controller | [B-AACC-CPP](https://github.com/chipkin/BACnetProfileExample-B-AACC-CPP) | Ask | Ask | Ask | Ask | Ask |
+| **B-ACC** Access Control Controller | [B-ACC-CPP](https://github.com/chipkin/BACnetProfileExample-B-ACC-CPP) ⛔ blocked on [stack #2150](https://github.com/chipkin/cas-bacnet-stack/issues/2150), [#2044](https://github.com/chipkin/cas-bacnet-stack/issues/2044) | Ask | Ask | Ask | Ask | Ask |
+| **B-AACC** Advanced Access Control Controller | [B-AACC-CPP](https://github.com/chipkin/BACnetProfileExample-B-AACC-CPP) ⛔ blocked on [stack #2150](https://github.com/chipkin/cas-bacnet-stack/issues/2150), [#2044](https://github.com/chipkin/cas-bacnet-stack/issues/2044) | Ask | Ask | Ask | Ask | Ask |
 
 ### Lighting controllers (Annex L.11)
 
@@ -341,7 +372,7 @@ The CAS BACnet Stack supports every standardized device profile in ASHRAE 135-20
 
 | Profile | C++ | Node.js | C# | Rust | Python | Go |
 |---|---|---|---|---|---|---|
-| **B-AS** Authorization Server | [B-AS-CPP](https://github.com/chipkin/BACnetProfileExample-B-AS-CPP) | Ask | Ask | Ask | Ask | Ask |
+| **B-AS** Authorization Server | [B-AS-CPP](https://github.com/chipkin/BACnetProfileExample-B-AS-CPP) ⛔ blocked on [stack #2043](https://github.com/chipkin/cas-bacnet-stack/issues/2043) | Ask | Ask | Ask | Ask | Ask |
 
 ### Miscellaneous (Annex L.7, combinable with any one family)
 
@@ -349,10 +380,10 @@ The CAS BACnet Stack supports every standardized device profile in ASHRAE 135-20
 |---|---|---|---|---|---|---|
 | **B-BBMD** Broadcast Management Device | [B-BBMD-CPP](https://github.com/chipkin/BACnetProfileExample-B-BBMD-CPP) | Ask | Ask | Ask | Ask | Ask |
 | **B-ACDC** Access Control Door Controller | [B-ACDC-CPP](https://github.com/chipkin/BACnetProfileExample-B-ACDC-CPP) | Ask | Ask | Ask | Ask | Ask |
-| **B-ACCR** Access Control Credential Reader | [B-ACCR-CPP](https://github.com/chipkin/BACnetProfileExample-B-ACCR-CPP) | Ask | Ask | Ask | Ask | Ask |
+| **B-ACCR** Access Control Credential Reader | [B-ACCR-CPP](https://github.com/chipkin/BACnetProfileExample-B-ACCR-CPP) ⛔ blocked on [stack #3934](https://github.com/chipkin/cas-bacnet-stack/issues/3934) | Ask | Ask | Ask | Ask | Ask |
 | **B-RTR** Router | [B-RTR-CPP](https://github.com/chipkin/BACnetProfileExample-B-RTR-CPP) | Ask | Ask | Ask | Ask | Ask |
 | **B-GW** Gateway | [B-GW-CPP](https://github.com/chipkin/BACnetProfileExample-B-GW-CPP) | Ask | Ask | Ask | Ask | Ask |
-| **B-DAP** Device Address Proxy | [B-DAP-CPP](https://github.com/chipkin/BACnetProfileExample-B-DAP-CPP) | Ask | Ask | Ask | Ask | Ask |
+| **B-DAP** Device Address Proxy | [B-DAP-CPP](https://github.com/chipkin/BACnetProfileExample-B-DAP-CPP) ⛔ blocked on [stack #2032](https://github.com/chipkin/cas-bacnet-stack/issues/2032) | Ask | Ask | Ask | Ask | Ask |
 | **B-SCHUB** BACnet/SC Hub | [B-SCHUB-CPP](https://github.com/chipkin/BACnetProfileExample-B-SCHUB-CPP) | Ask | Ask | Ask | Ask | Ask |
 | **B-GENERAL** General device (Annex L.8) | *(satisfied by every example above)* | — | — | — | — | — |
 
@@ -380,7 +411,7 @@ Client-side profiles.
 | **B-EWS** Elevator Workstation | planned | — | — | — | — | — |
 | **B-AEWS** Advanced Elevator Workstation | planned | — | — | — | — | — |
 
-🚧 = in progress. "Ask" = not yet built for that language; contact Chipkin if you need it. Profile definitions: ANSI/ASHRAE 135-2024 Annex L. BIBB definitions: Annex K. Get the stack: <https://store.chipkin.com/services/stacks/bacnet-stack>.
+🚧 = in progress. ⛔ = Blocked Example (blocked on the named stack gap). "Ask" = not yet built for that language; contact Chipkin if you need it. Profile definitions: ANSI/ASHRAE 135-2024 Annex L. BIBB definitions: Annex K. Get the stack: <https://store.chipkin.com/services/stacks/bacnet-stack>.
 <!-- PROFILE-TABLE:END -->
 
 ## References
