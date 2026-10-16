@@ -3,12 +3,15 @@
 A tutorial example showing how to implement **most of the BACnet B-BC
 (Building Controller)** device profile with the
 [CAS BACnet Stack](https://store.chipkin.com/services/stacks/bacnet-stack), in
-C++ (what is missing is in the status note below). This is the largest single profile in the CAS BACnet
-Stack example set: commandable outputs, DeviceCommunicationControl, intrinsic
+C++. The controller **reads a sensor in another device** (ReadProperty and
+ReadPropertyMultiple), **alarms on and trends** that reading, **writes** the
+other device's output from a Schedule, and **notices when the other device goes
+silent** - see [The scenario](#the-scenario). Around that it carries the rest of
+the profile: commandable outputs, DeviceCommunicationControl, intrinsic
 alarming with a writable event-recipient list, time synchronisation,
-ReinitializeDevice, Backup and Restore, a Schedule that writes a **remote**
-device's object (SCHED-E-B), and **trending** (Trend Log, Trend Log Multiple,
-and ReadRange). It listens on **BACnet/IP (UDP 47808)** and claims only B-BC.
+ReinitializeDevice, Backup and Restore, and trending (Trend Log, Trend Log
+Multiple, and ReadRange). It listens on **BACnet/IP (UDP 47808)** and claims
+only B-BC.
 
 **[Download a prebuilt binary](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/releases)**
 (Windows and Linux x64) - or build it yourself, see [Build](#build) below.
@@ -18,21 +21,18 @@ and ReadRange). It listens on **BACnet/IP (UDP 47808)** and claims only B-BC.
 - **[docs/PICS.md](docs/PICS.md)** - the Protocol Implementation Conformance
   Statement: every object, every property, and who answers it.
 
-> **Versions:** this document describes **example v1.0.8**, built and verified
+> **Versions:** this document describes **example v1.1.0**, built and verified
 > against **CAS BACnet Stack 6.0.23** (`6.x` @ `64b2cfac5`), at
 > **Protocol_Revision 30**, with the vendored `common/` helper at **v3.3.0**.
 > Running the example prints all three - if what it prints disagrees with this
 > line, trust the program and check `CHANGELOG.md`.
 
-> **Status: not yet BIBB-conformant, not Profile-functional.** Two BIBBs a
-> B-BC requires are missing: **DS-RP-A and DS-RPM-A** - nothing in this example
-> *reads* another device's objects (135-2024 L.4.1: "Ability to retrieve the
-> values of BACnet objects from other devices"). The stack has the calls; this
-> example does not use them yet. What does work is proven by the
-> [Wire Tests](#wire-tests): every listed property reads, Schedule 1 writes a
-> remote peer's Analog Output 1, and the stack-held Calendar drives Schedule 1's
-> exception. One stack gap at this pin: the Trend Logs' required
-> `Total_Record_Count` is missing. See [TODO.md](TODO.md).
+> **Status: Profile-functional.** The [Wire Tests](#wire-tests) prove the
+> controller reading a Python-simulated peer device (DS-RP-A, DS-RPM-A), acting
+> on the reading (alarm), writing the peer (DS-WP-A, SCHED-E-B) and handling the
+> peer going silent (the Failure Mode). Alarm acknowledgement, recipient-list
+> redirection, trend retrieval and backup/restore are checked by hand
+> ([Verify](#verify)). No known stack gaps at this pin; see [TODO.md](TODO.md).
 
 ## What is a B-BC (Building Controller) profile?
 
@@ -46,6 +46,60 @@ AE-CRL-B; SCHED-E-B; T-VMT-I-B, T-ATR-B; DM-DDB-A,B, DM-DOB-B, DM-DCC-B,
 DM-TS-B (or DM-UTC-B), DM-RD-B, DM-BR-B`. AE-ESUM-B (GetAlarmSummary) is
 deliberately omitted - it is not required at or above Protocol_Revision 13.
 
+135-2024 Annex L.4.1 states the job in one sentence: "A B-BC is a
+general-purpose, field-programmable device capable of carrying out a variety of
+building automation and control tasks." Its first data-sharing items are the
+"Ability to retrieve the values of BACnet objects from other devices" and the
+"Ability to modify some BACnet objects in other devices" - a controller acts
+on, and for, the devices around it.
+
+## The scenario
+
+```
+peer device 389002 (another vendor's sensor/actuator)        this controller, device 389005
+  Analog Input 1  humidity, %   <-- ReadProperty / ReadPropertyMultiple, 1 s --  -> Analog Value 1 "Diamond"
+  Analog Output 1               <-- WriteProperty @ 8 (Schedule 1 "Saffron") --      alarm 10..90 %, trended
+```
+
+1. The peer announces itself (I-Am). The controller learns its address
+   (`BACnetStack_RegisterHookIAm`) and starts polling its **Analog Input 1**
+   once a second, alternating **ReadProperty** (`Present_Value`) and
+   **ReadPropertyMultiple** (`Present_Value` + `Status_Flags`).
+2. The reading becomes **Analog Value 1 "Diamond"**'s `Present_Value`.
+   Diamond's intrinsic **OutOfRange** algorithm (10..90 %) alarms on it to
+   Notification Class 1 "Crimson"'s recipients, and Trend Log Multiple 1
+   "Magenta" trends it. Diamond is read-only on the network: its value belongs
+   to the peer.
+3. **Schedule 1 "Saffron"** writes the peer's **Analog Output 1** (and the
+   local Analog Output 1) at priority 8 - also when the peer turns up after
+   the controller started (the write waits until the peer is bound).
+4. **Failure Mode - the peer goes silent.** After 3 s with no answer, Diamond
+   reports `Reliability` = `communication-failure` and the `FAULT` status
+   flag, and keeps its last good value. The controller keeps probing; when the
+   peer answers again, Diamond is `no-fault-detected` and follows the new
+   reading. If the peer instead *answers* but flags its own sensor `FAULT`,
+   Diamond reports `unreliable-other` and holds its last good value.
+
+How the reply is read is the one non-obvious part: the stack has no callback
+that hands an application a ReadProperty-ACK's value, so this example owns its
+BACnet/IP socket and decodes the two ACKs it asked for in its receive callback
+before passing every datagram to the stack (section 2e of
+[`main.cpp`](main.cpp); [TUTORIAL.md](TUTORIAL.md#reading-another-device)).
+
+### What is Simulation
+
+Nothing in the scenario above is simulated: the reads, the alarm, the
+schedule write and the comms-loss detection are all real BACnet traffic and
+real stack behaviour. In the Wire Tests the peer is a **Python-simulated
+device** (`tests/bc_setup.py`, `HumidityPeer`); on a site it is any BACnet
+device with an Analog Input 1 at instance 389002.
+
+What *is* Simulation (non-BACnet scaffolding that stands in for hardware, and
+is outside the BACnet Surface): the local sensor values (Analog Input 1
+"Bronze" moves with the arrow keys; Binary Input 1 and Multi-state Input 1 are
+constants) and the local outputs (Analog/Binary/Multi-state Output 1 store
+their commands; nothing is driven).
+
 ## The device this example creates
 
 ```
@@ -56,7 +110,7 @@ Multi-state Input 1      "Hot Pink"    (state 1..3; read-only)
 Analog Output 1          "Chartreuse"  (REAL setpoint; WRITABLE, commandable)
 Binary Output 1          "Fuchsia"     (active / inactive; WRITABLE, commandable)
 Multi-state Output 1     "Indigo"      (state 1..3; WRITABLE, commandable)
-Analog Value 1           "Diamond"     (REAL, WRITABLE; intrinsic OutOfRange alarm)
+Analog Value 1           "Diamond"     (REAL, read from peer 389002's Analog Input 1; OutOfRange alarm; Reliability)
 Notification Class 1     "Crimson"     (routes Diamond's alarms; Recipient_List WRITABLE)
 Network Port 1           "Vermilion"   (BACnet/IP - required)
 Schedule 1               "Saffron"     (drives Chartreuse locally AND a remote peer - SCHED-E-B)
@@ -72,19 +126,19 @@ Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 
 | BIBB | Description | Supported |
 |------|-------------|:---------:|
-| DS-RP-A | Data Sharing - ReadProperty - A | ❌ not yet - nothing initiates ReadProperty ([TODO.md](TODO.md)) |
+| DS-RP-A | Data Sharing - ReadProperty - A | ✅ (polls the peer's Analog Input 1 - Wire Test `controller_test.py`) |
 | DS-RP-B | Data Sharing - ReadProperty - B | ✅ |
-| DS-RPM-A | Data Sharing - ReadPropertyMultiple - A | ❌ not yet - nothing initiates ReadPropertyMultiple ([TODO.md](TODO.md)) |
+| DS-RPM-A | Data Sharing - ReadPropertyMultiple - A | ✅ (`Present_Value` + `Status_Flags` of the peer's Analog Input 1 - Wire Test) |
 | DS-RPM-B | Data Sharing - ReadPropertyMultiple - B | ✅ |
-| DS-WP-A | Data Sharing - WriteProperty - A | ✅ (Schedule 1's remote write - the only WriteProperty it initiates) |
+| DS-WP-A | Data Sharing - WriteProperty - A | ✅ (Schedule 1's remote write - the only WriteProperty it initiates; Wire Test) |
 | DS-WP-B | Data Sharing - WriteProperty - B | ✅ |
 | DS-WPM-B | Data Sharing - WritePropertyMultiple - B | ✅ |
 | AE-N-I-B | Alarm and Event - Notification Internal - B | ✅ |
 | AE-ACK-B | Alarm and Event - ACK - B | ✅ |
 | AE-INFO-B | Alarm and Event - Information - B | ✅ |
 | AE-CRL-B | Alarm and Event - Recipient List - B | ✅ |
-| SCHED-E-B | Scheduling - External - B | ✅ (local and remote writes: Wire Test `sched_e_b_remote_peer.py`; a write made before the remote device is bound is now kept until it binds, stack #2343 fixed) |
-| T-VMT-I-B | Trending - Viewing and Modifying Trends - Internal - B | ✅ with a stack gap: `Total_Record_Count` is missing on both Trend Logs at this pin ([TODO.md](TODO.md)) |
+| SCHED-E-B | Scheduling - External - B | ✅ (local and remote writes: Wire Tests `sched_e_b_remote_peer.py` and `controller_test.py` - the latter with a peer that binds after start-up, stack #2343 fixed) |
+| T-VMT-I-B | Trending - Viewing and Modifying Trends - Internal - B | ✅ |
 | T-ATR-B | Trending - Automated Trend Retrieval - B | ✅ (via ReadRange on Trend Log Multiple) |
 | DM-DDB-A | Device Management - Dynamic Device Binding - A | ✅ |
 | DM-DDB-B | Device Management - Dynamic Device Binding - B | ✅ |
@@ -99,7 +153,8 @@ Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 | Service | Notes |
 |---------|-------|
 | ReadProperty / ReadPropertyMultiple | Responds to property reads (DS-RP-B / DS-RPM-B). |
-| WriteProperty / WritePropertyMultiple | Accepts writes to commandable outputs, Diamond, and Crimson's `Recipient_List` (DS-WP-B / DS-WPM-B). |
+| ReadProperty / ReadPropertyMultiple (initiate) | Polls peer device 389002's Analog Input 1 once a second, alternating the two (DS-RP-A / DS-RPM-A). |
+| WriteProperty / WritePropertyMultiple | Accepts writes to commandable outputs and Crimson's `Recipient_List` (DS-WP-B / DS-WPM-B). |
 | WriteProperty (initiate) | Schedule 1 writes Chartreuse locally and a remote peer's Analog Output 1 (SCHED-E-B / DS-WP-A). |
 | Who-Is / I-Am | Answers Who-Is with I-Am; broadcasts I-Am at start-up and on restart; also initiates Who-Is at start-up (DM-DDB-A,B). |
 | Who-Has / I-Have | Answers Who-Has with I-Have (DM-DOB-B). |
@@ -220,7 +275,7 @@ CMake at it: `cmake -B build -S . -D CAS_STACK_DIR=/path/to/cas-bacnet-stack`.
 Expected output:
 
 ```
-BACnet B-BC (Building Controller) Example - C++ v1.0.8
+BACnet B-BC (Building Controller) Example - C++ v1.1.0
 CAS BACnet Stack version: 6.0.23.0
 Common helper (common/) version: 3.3.0
 FYI: Listening for BACnet/IP on UDP port 47808 (Network Port 1).
@@ -276,9 +331,14 @@ or any BACnet client:
    `Protocol_Revision` = 30. *Wire Test.*
 3. **Command an output (F-OUTPUTS)** - WriteProperty Analog Output 1
    (Chartreuse) `Present_Value` at a priority; read it back. *Verified live.*
-4. **Fire an alarm** - WriteProperty Diamond `Present_Value` = `95`; read
-   `Event_State` (`high-limit`) and watch the EventNotification arrive. Write
-   `50` to return to `normal`. *Verified live.*
+4. **Read a peer, and alarm on it** - run any BACnet device at instance
+   389002 with an Analog Input 1 on the same subnet (or the Python peer in
+   `tests/bc_setup.py`). Diamond follows its `Present_Value`; drive it above
+   `90` and Diamond's `Event_State` goes `high-limit` and the EventNotification
+   arrives; back to `50` returns it to `normal`. Stop the peer and Diamond's
+   `Reliability` goes `communication-failure` within about 3 s. *Wire Test
+   (`controller_test.py`, `failure_mode_test.py`); the EventNotification itself was
+   last watched by hand before 1.1.0, when a client wrote Diamond.*
 5. **Acknowledge / redirect (AE-ACK-B / AE-CRL-B)** - AcknowledgeAlarm for
    Diamond; GetEventInformation; WriteProperty Crimson's `Recipient_List` with
    a new destination and confirm the next alarm goes there. *Recipient_List
@@ -307,13 +367,23 @@ Python BACnet peers drive the running example over BACnet/IP from outside it:
   ReadProperty of every listed property; every read must return a value (the
   Trend Logs' `Log_Buffer` must instead be refused - it is ReadRange only).
   Python 3 standard library only.
+- `tests/controller_test.py` - **the Profile Function.** A Python peer
+  (device 389002) has a humidity sensor; the test checks the controller reads
+  it with ReadProperty and ReadPropertyMultiple, Diamond follows it, alarms on
+  it, holds its last value while the peer flags its sensor faulty, and that
+  Schedule 1 writes the peer's Analog Output 1 although the peer arrived after
+  start-up. Python 3 standard library only.
+- `tests/failure_mode_test.py` - **the Failure Mode.** The peer goes silent:
+  Diamond reports `communication-failure` and `FAULT`, keeps its last good
+  value, the controller keeps trying, and it recovers when the peer answers
+  again.
 - `tests/sched_e_b_remote_peer.py` - plays peer device 389002 and checks that
   Schedule 1 writes its Analog Output 1 (SCHED-E-B, DS-WP-A).
 - `tests/calendar_reference_check.py` - adds today to Calendar 1's `Date_List`
   and checks Cream -> Saffron -> Chartreuse, then restores it.
 
 The last two use bacpypes3 (`pip install -r tests/requirements.txt`).
-`tests/run_wire_tests.py` runs all three, starting a fresh device for each:
+`tests/run_wire_tests.py` runs all five, starting a fresh device for each:
 
 ```bash
 python3 tests/run_wire_tests.py --exe build/BACnetExampleBBC          # Linux/macOS

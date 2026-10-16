@@ -106,12 +106,52 @@ Analog/Binary/Multi-state Output already default to commandable in the stack -
 `SetPropertyEnabled(Relinquish_Default)` / `SetPropertyWritable(Present_Value)`
 loop over them is technically a no-op there (see the comment above that loop
 in `main.cpp` for the stack-source citations). But if you make an **Analog
-Value / Binary Value / Multi-State Value** commandable (as this example does
-for "Diamond", minus the priority array - Diamond is writable but not
-priority-driven), `Priority_Array` and `Relinquish_Default` default to
-**optional**, and `IsPropertyCommandable()` requires *both* to be enabled
+Value / Binary Value / Multi-State Value** commandable (this example's
+"Diamond" is not: its value comes from the peer and it is read-only),
+`Priority_Array` and `Relinquish_Default` default to **optional**, and `IsPropertyCommandable()` requires *both* to be enabled
 before the stack treats the object as commandable at all. Omit either call on
 a Value object and it silently stays non-commandable.
+
+### Reading another device
+
+DS-RP-A / DS-RPM-A - "Ability to retrieve the values of BACnet objects from
+other devices" (Annex L.4.1) - is section 2e of `main.cpp`. Three things to
+know before you copy it:
+
+1. **Sending is easy; the value comes back through your receive callback.**
+   `BACnetStack_SendReadProperty()` sends a ReadProperty (`serviceType` 12) or
+   a ReadPropertyMultiple (14) and gives you the invoke id. The stack has no
+   callback that hands you the ACK's value (the per-type
+   `RegisterHookProperty*` exports were removed in v6; see the note under
+   `BACnetStack_SendReadProperty` in `CASBACnetStackDLL.h`). Every received
+   datagram passes through your `CallbackReceiveMessageForPort`, so that is
+   where you look: `HandleReplyFromPeer()` matches the source address and the
+   invoke id, then decodes the ReadProperty-ACK (Result(+), cl. 15.5.1.2) or
+   ReadPropertyMultiple-ACK (cl. 15.7.1.2) by hand - and still returns the
+   bytes to the stack, which clears its own pending request. For anything
+   more general, decode with `BACnetStack_DecodeAs()` (JSON or XML; it needs
+   `STACK_OPTION_DECODE_AS_*` compiled in).
+2. **That is why this example owns its socket.** `common/`'s
+   `CASExampleHelper::SetupUDP()` + `RegisterCommonCallbacks()` keep the
+   socket and the receive callback private, so an example that wants to see
+   replies binds its own `SimpleUDP` and registers its own pair of transport
+   callbacks after `RegisterCommonCallbacks()` (which still provides the time
+   callback). B-OD-CPP does the same.
+3. **Detect comms loss yourself.** `BACnetStack_RegisterHookTimeout` fires
+   only after every retry of one request is exhausted - possibly minutes. The
+   example keeps the time of the last answer of any kind (ACK, Error, Reject,
+   Abort) and, after `REMOTE_COMMS_LOSS_MILLISECONDS` without one, sets the
+   local copy's `Reliability` to `communication-failure`; the stack derives
+   `Status_Flags` FAULT from it (cl. 12.4.6) once you call
+   `BACnetStack_UpdateValue(..., Reliability)`. Keep the last good value: a
+   client reading `Present_Value` gets a value, and `Reliability` tells it how
+   far to trust it.
+
+The peer's address is learned from its I-Am with `BACnetStack_RegisterHookIAm`
+(the hook runs after the stack has updated its own Device Address Binding
+table). The example only addresses a peer on its own network; a peer behind a
+router needs its SNET/SADR passed as `destinationNetwork` /
+`destinationAddress` on every read.
 
 ### Adding a Trend Log
 
@@ -191,8 +231,9 @@ with reproduction steps.
    [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050).
    **Fixed:** no per-tick flood since 6.0.22, and the later startup burst
    ([#2381](https://github.com/chipkin/cas-bacnet-stack/issues/2381)) is gone
-   at `64b2cfac5` too. **Open at this pin:** both Trend Logs lack the required
-   `Total_Record_Count` (a stack defect, `TODO.md`).
+   at `64b2cfac5` too. Both Trend Logs list and serve the required
+   `Total_Record_Count` (property 145) at this pin; it climbs with
+   `Record_Count`.
 2. **Schedule 1's SCHED-E-B remote write works, including the first write at
    startup.** `List_Of_Object_Property_References` has two entries,
    because each `AddScheduleObjectPropertyReference` call APPENDS: a local one
@@ -206,7 +247,8 @@ with reproduction steps.
    before the peer is bound; the stack now logs *"not resolved in DAB - the
    write is kept until it binds"* and sends it once the peer's I-Am arrives
    ([#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343), fixed at
-   `64b2cfac5`; checked by hand).
+   `64b2cfac5`; Wire Test `tests/controller_test.py`, whose peer arrives after
+   start-up).
 
 ## Reviewing your device
 
@@ -224,9 +266,10 @@ rather than against "it looked fine in the explorer":
 4. Confirm the commandable outputs accept a priority write and relinquish
    (write NULL) back to `Relinquish_Default`, and that a read-only input
    rejects WriteProperty.
-5. Fire Diamond's alarm (WriteProperty `Present_Value` above 90 or below 10)
-   and confirm `Event_State` transitions and a notification reaches Crimson's
-   recipients.
+5. Fire Diamond's alarm (drive the peer's Analog Input 1 above 90 or below
+   10 - Diamond is read-only) and confirm `Event_State` transitions and a
+   notification reaches Crimson's recipients. Stop the peer and confirm
+   Diamond's `Reliability` goes `communication-failure`.
 6. Wait a few seconds and ReadRange Magenta's `Log_Buffer`; confirm
    `Record_Count` climbs. Lilac's `Record_Count` should climb too.
 

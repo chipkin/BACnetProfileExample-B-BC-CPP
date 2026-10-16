@@ -4,25 +4,24 @@ Stack pin: `64b2cfac5` (`6.x`, 2026-10-15, reports 6.0.23). Re-checked 2026-10-1
 moved from `00aa2d0e` (`issues/runbook`, 6.0.22). The pin is back on `6.x`: the stack-held
 Calendars this example needed (#1758) reached `6.x`.
 
-This example is **not yet BIBB-conformant** and **not Profile-functional** (series
-`docs/GLOSSARY.md`). The gaps below are this example's own scope unless they say otherwise.
+This example is **Profile-functional** (series `docs/GLOSSARY.md`) since 1.1.0: the Wire
+Tests prove it reading a peer (DS-RP-A, DS-RPM-A), acting on the reading, writing the peer
+(DS-WP-A, SCHED-E-B) and handling the peer going silent. No `[KNOWN GAP]` - nothing in this
+example's Profile Function is blocked by the stack at this pin. What is left is this example's
+own scope (bottom of this file).
 
-## 1. DS-RP-A and DS-RPM-A: nothing initiates ReadProperty or ReadPropertyMultiple
+## Resolved in 1.1.0
 
-135-2024 Annex L, the controller profiles' BIBB table, gives B-BC `DS-RP-A,B` and `DS-RPM-A,B`,
-and L.4.1 lists "Ability to retrieve the values of BACnet objects from other devices". There is
-no `BACnetStack_SendReadProperty` (or `SendReadPropertyMultiple`) anywhere in `main.cpp`, so the
-A side of both is not implemented. Until 1.0.8 the README and PICS ticked both; they now say
-"no". The customer header has the exports - this is own-scope work, e.g. a polled read of peer
-389002's Analog Output 1 feeding a local object, with a Wire Test whose peer changes the value.
+- **DS-RP-A and DS-RPM-A** (was item 1). `main.cpp` section 2e polls peer 389002's Analog
+  Input 1 once a second, alternating ReadProperty and ReadPropertyMultiple, into Analog Value 1
+  "Diamond". Wire Test `tests/controller_test.py`.
+- **Trend Log `Total_Record_Count`** (was item 2, already withdrawn as a stack defect).
+  Re-checked by hand at `64b2cfac5` on Windows: property **145** is in `Property_List` of both
+  Trend Log 1 and Trend Log Multiple 1 and reads a value that climbs with `Record_Count`
+  (0 -> 4 on Trend Log 1, 8 -> 11 on Trend Log Multiple 1, three seconds apart). The phase-1
+  probe had read 322 (Access_Event_Tag).
 
-## 2. (withdrawn) Trend Log `Total_Record_Count`
-
-Not a stack defect. The probe read property 322, which is Access_Event_Tag. Total_Record_Count is
-**145**, and the stack lists it as required for Trend Log and Trend Log Multiple. A ReadProperty
-of 322 correctly answers unknown-property. Re-check 145 by hand in phase 2.
-
-## 3. Not applicable here (checked)
+## Not applicable here (checked)
 
 - **#2036** (Life Safety Point/Zone exports, open) - this example has no Life Safety objects.
 - **#2044, #2046** (access-family, open) - this example has no access-control objects.
@@ -41,11 +40,11 @@ of 322 correctly answers unknown-property. Re-check 145 by hand in phase 2.
 | #1758 | Calendar `Date_List` storage | in `6.x`; `calendar_reference_check.py` passes |
 | #2163, #2164, #2165, #2175 | log noise / Abort on bad properties | closed |
 
-**#2343, checked on the wire.** A bacpypes3 peer playing 389002 that only sends B-BC a unicast
-I-Am (no Schedule_Default write) now receives `WriteProperty Analog_Output 1.Present_Value`
-20.0 @ priority 8; B-BC logs "SendExternalWriteProperty: device instance=[389002] not resolved in
-DAB - the write is kept until it binds", then sends it once the I-Am arrives. Checked by hand on
-Windows (a scratch script, not committed); turning it into a Failure Mode Wire Test is open work.
+**#2343, on the wire.** A Python peer playing 389002 that binds only after start-up (its I-Am
+arrives after B-BC is running) receives `WriteProperty Analog_Output 1.Present_Value` 20.0 @
+priority 8 - B-BC logs "SendExternalWriteProperty: device instance=[389002] not resolved in
+DAB - the write is kept until it binds", then sends it once the I-Am arrives. This is now a
+check in `tests/controller_test.py`.
 
 ## Checked by hand at this pin (not yet Wire Tests)
 
@@ -54,10 +53,15 @@ backup-in-progress), AtomicReadFile of File 1, ENDBACKUP, STARTRESTORE, AtomicWr
 octets, ENDRESTORE - every step acknowledged, the four backup/restore callbacks ran, and File 1
 reads back the restored content.
 
-## The example's own next steps (phase 2)
+## The example's own next steps
 
-- Item 1 (DS-RP-A / DS-RPM-A).
-- Failure Mode Wire Tests: the #2343 case above (peer bound after start-up), and a peer that
-  rejects the remote write or never answers.
-- A Python recipient that receives Diamond's OffNormal notification and acknowledges it.
-- A time-varying Bronze, so the Trend Logs record something that changes.
+- A Wire Test that receives Diamond's EventNotification and acknowledges it (AE-N-I-B,
+  AE-ACK-B; today `controller_test.py` checks Event_State only; the notification itself was last
+  watched by hand before 1.1.0, when a client wrote Diamond). B-BC notifies the local subnet broadcast, which a test on the same host hears on
+  Linux only (`wiretest.broadcast_listener`); a device-instance recipient written to
+  Recipient_List would make it unicast and portable.
+- A Wire Test that retrieves Magenta's records with ReadRange and finds the peer's humidity in
+  them (T-VMT-I-B, T-ATR-B - checked by hand).
+- A peer that answers the remote Schedule write with an Error (the other half of the SCHED-E-B
+  Failure Mode).
+- A time-varying Bronze, so Trend Log 1 records something that changes.

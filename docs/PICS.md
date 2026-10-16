@@ -8,9 +8,9 @@ see [README.md](../README.md).
 > example into your own device, this document is one of the things you rewrite:
 > the vendor, model and version rows all come from the
 > `CHANGE ALL OF THIS BEFORE YOU SHIP` block at the top of `main.cpp`. The
-> example has **not** been submitted for BTL certification, and it does not
-> fully claim B-BC yet - see the T-VMT-I-B row in section 3 and
-> [TUTORIAL.md](../TUTORIAL.md) for the known gaps.
+> example has **not** been submitted for BTL certification. Every BIBB below is
+> implemented; what is proven by a Wire Test and what was checked by hand is
+> in [README.md](../README.md#verify).
 
 ## 1. Product description
 
@@ -20,13 +20,16 @@ see [README.md](../README.md).
 | **Vendor Identifier** | 389 |
 | **Product Name** | CAS BACnet Stack Example - B-BC |
 | **Product Model Number** | CAS BACnet Stack Example - B-BC |
-| **Application Software Version** | 1.0.8 |
+| **Application Software Version** | 1.1.0 |
 | **Firmware Revision** | 6.0.23.0 (the CAS BACnet Stack version) |
 | **BACnet Protocol Version** | 1 |
 | **BACnet Protocol Revision** | 30 |
 
 **Product Description:** a BACnet/IP Building Controller built on the CAS
-BACnet Stack. It presents fifteen objects spanning read-only sensors,
+BACnet Stack. It reads a humidity sensor in a peer device (ReadProperty and
+ReadPropertyMultiple), alarms on and trends that reading, and reports
+communication loss with the peer through Reliability. It presents fifteen
+objects spanning read-only sensors,
 commandable outputs, an intrinsic-alarming Analog Value with a writable
 event-recipient list, a Schedule that writes both a local and a remote
 object, Backup and Restore, and a Trend Log / Trend Log Multiple pair
@@ -46,9 +49,9 @@ is subsumption, not a second claim.
 
 | BIBB | Description | Supported |
 |---|---|:---:|
-| DS-RP-A | Data Sharing - ReadProperty - A | **No** - nothing initiates ReadProperty (section 4); required for B-BC, see TODO.md |
+| DS-RP-A | Data Sharing - ReadProperty - A | Yes - polls peer device 389002's Analog Input 1 `Present_Value` into Analog Value 1 ("Diamond") (Wire Test) |
 | DS-RP-B | Data Sharing - ReadProperty - B | Yes |
-| DS-RPM-A | Data Sharing - ReadPropertyMultiple - A | **No** - nothing initiates ReadPropertyMultiple (section 4); required for B-BC, see TODO.md |
+| DS-RPM-A | Data Sharing - ReadPropertyMultiple - A | Yes - every other poll reads the peer's Analog Input 1 `Present_Value` and `Status_Flags` in one request (Wire Test) |
 | DS-RPM-B | Data Sharing - ReadPropertyMultiple - B | Yes |
 | DS-WP-A | Data Sharing - WriteProperty - A | Yes (Schedule 1's remote write) |
 | DS-WP-B | Data Sharing - WriteProperty - B | Yes |
@@ -58,7 +61,7 @@ is subsumption, not a second claim.
 | AE-INFO-B | Alarm and Event - Information - B | Yes |
 | AE-CRL-B | Alarm and Event - Recipient List - B | Yes |
 | SCHED-E-B | Scheduling - External - B | Yes (local and remote writes; Wire Test `tests/sched_e_b_remote_peer.py`) |
-| T-VMT-I-B | Trending - Viewing and Modifying Trends - Internal - B | Yes, through both Trend Log 1 ("Lilac") and Trend Log Multiple 1 ("Magenta") - but the required `Total_Record_Count` is missing on both at this pin (stack defect, TODO.md) |
+| T-VMT-I-B | Trending - Viewing and Modifying Trends - Internal - B | Yes, through both Trend Log 1 ("Lilac") and Trend Log Multiple 1 ("Magenta") |
 | T-ATR-B | Trending - Automated Trend Retrieval - B | Yes, via ReadRange - live-verified against Trend Log Multiple 1 ("Magenta") |
 | DM-DDB-A | Device Management - Dynamic Device Binding - A | Yes |
 | DM-DDB-B | Device Management - Dynamic Device Binding - B | Yes |
@@ -78,8 +81,8 @@ life-safety BIBB.
 
 | Service | Initiate | Execute |
 |---|:---:|:---:|
-| ReadProperty | no | **yes** |
-| ReadPropertyMultiple | no | **yes** |
+| ReadProperty | **yes** (polls the peer's Analog Input 1) | **yes** |
+| ReadPropertyMultiple | **yes** (polls the peer's Analog Input 1) | **yes** |
 | WriteProperty | **yes** (Schedule 1's local + remote write) | **yes** |
 | WritePropertyMultiple | no | **yes** |
 | Who-Is | **yes** (start-up) | **yes** |
@@ -99,9 +102,11 @@ life-safety BIBB.
 
 An unsolicited I-Am is broadcast to the local subnet at start-up and after a
 ReinitializeDevice restart, as well as in response to Who-Is. This device also
-initiates a Who-Is at start-up (DM-DDB-A) and initiates WriteProperty when
+initiates a Who-Is at start-up (DM-DDB-A), initiates WriteProperty when
 Schedule 1 ("Saffron") fires a transition, targeting both a local object and a
-remote peer device's object (SCHED-E-B).
+remote peer device's object (SCHED-E-B), and initiates ReadProperty and
+ReadPropertyMultiple once a second to read peer device 389002's Analog Input 1
+(DS-RP-A, DS-RPM-A).
 
 ## 5. Segmentation capability
 
@@ -129,7 +134,7 @@ No object is dynamically creatable or deletable.
 | Analog Output | 1 | Chartreuse | - (commandable: writable Present_Value) |
 | Binary Output | 1 | Fuchsia | - (commandable: writable Present_Value) |
 | Multi-state Output | 1 | Indigo | - (commandable: writable Present_Value) |
-| Analog Value | 1 | Diamond | writable Present_Value; intrinsic OutOfRange alarming |
+| Analog Value | 1 | Diamond | Reliability; intrinsic OutOfRange alarming (Present_Value is read-only: it is the peer's reading) |
 | Notification Class | 1 | Crimson | writable Recipient_List (AE-CRL-B) |
 | Network Port | 1 | Vermilion | - |
 | Schedule | 1 | Saffron | - |
@@ -163,7 +168,9 @@ whenever this device names a peer by device instance rather than address -
 the Schedule 1 ("Saffron") SCHED-E-B remote write target, and optionally a
 Notification Class recipient named by device instance. Both cases chase the
 peer with Who-Is and start delivering once it resolves; neither requires a
-static entry.
+static entry. The DS-RP-A / DS-RPM-A reads of peer 389002 are addressed from
+that peer's I-Am, which the example observes with `BACnetStack_RegisterHookIAm`
+(it must be on the local network - no router in between).
 
 ## 9. Networking options
 
@@ -301,16 +308,17 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 | Current_Command_Priority | BACnetOptionalUnsigned | stack | no |
 
-### Analog Value 1 "Diamond" - the alarm-capable process value (AE-N-I-B). Event_State is NOT a stack default here - it is genuinely computed, because this example arms an intrinsic OutOfRange algorithm on Diamond (SetIntrinsicOutOfRangeAlgorithm + SetAlarmsAndEventsForObjectEnabled); it is marked accepted only because property-profile-reference.md's generic table does not know an algorithm was armed. A client writes Present_Value across 10-90 percent to fire an EventNotification to Notification Class 1 (Crimson). Verified live: writing 95.0 transitions Event_State to high-limit. Also one of the three logged points for Trend Log Multiple 1 (Magenta)
+### Analog Value 1 "Diamond" - the humidity this controller READS from peer device 389002's Analog Input 1 (DS-RP-A / DS-RPM-A, main.cpp section 2e) - read-only on the network (a WriteProperty is refused: write-access-denied, Wire Test). Reliability (optional, enabled) says whether the reading is current: no-fault-detected; unreliable-other while the peer flags its own sensor FAULT (the last good value is held); communication-failure before the first reading and whenever the peer has been silent for 3 s (the last good value is kept). The stack derives Status_Flags FAULT from it (cl. 12.4.6). AE-N-I-B: Event_State is NOT a stack default here - it is genuinely computed by the intrinsic OutOfRange algorithm (limits 10..90 percent) this example arms; it is marked accepted only because property-profile-reference.md's generic table does not know an algorithm was armed. Wire Test: peer humidity 95 -> Event_State high-limit, 50 -> normal. Also one of the three logged points for Trend Log Multiple 1 (Magenta)
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|
 | Object_Identifier | BACnetObjectIdentifier | stack | no |
 | Object_Name | CharacterString | app | no |
 | Object_Type | BACnetObjectType | stack | no |
-| Present_Value | Real | stack | yes |
+| Present_Value | Real | app | no |
 | Status_Flags | BACnetStatusFlags | stack | no |
 | Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
+| Reliability *(optional, enabled)* | BACnetReliability | app | no |
 | Out_Of_Service | Boolean | app | no |
 | Units | BACnetEngineeringUnits | app | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
@@ -385,7 +393,7 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | File_Access_Method | BACnetFileAccessMethod | stack | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
-### Trend Log 1 "Lilac" - T-VMT-I-B / T-ATR-B. Enable, Stop_When_Full, Buffer_Size, Log_Buffer, Record_Count and Logging_Type are NOT stack defaults - they are genuinely held and served by the stack's Trend Log engine (BACnetStack_AddTrendLogObject + SetTrendLogTypeToPolled + SetTrendLogStartStopTime), marked accepted only because property-profile-reference.md's generic table does not know about this host-configuration API. Polls Analog Input 1 (Bronze) Present_Value every second. Log_Buffer is readable only via ReadRange (a plain ReadProperty is rejected with Error(OBJECT, READ_ACCESS_DENIED) - verified live). Record_Count climbs correctly (fixed cas-bacnet-stack#2051 - the Start_Time/Stop_Time window is now built from the same clock, UTC via gmtime, that the stack itself compares against, not local wall-clock) - live-verified: Record_Count climbed from 14 to 44 over 30 seconds. STACK DEFECT at 64b2cfac5 (TODO.md): the required Total_Record_Count is not in Property_List and reads unknown-property, so its row is flagged as served by nothing. (The #2050 log flood is fixed.)
+### Trend Log 1 "Lilac" - T-VMT-I-B / T-ATR-B. Enable, Stop_When_Full, Buffer_Size, Log_Buffer, Record_Count and Logging_Type are NOT stack defaults - they are genuinely held and served by the stack's Trend Log engine (BACnetStack_AddTrendLogObject + SetTrendLogTypeToPolled + SetTrendLogStartStopTime), marked accepted only because property-profile-reference.md's generic table does not know about this host-configuration API. Polls Analog Input 1 (Bronze) Present_Value every second. Log_Buffer is readable only via ReadRange (a plain ReadProperty is rejected with Error(OBJECT, READ_ACCESS_DENIED) - verified live). Record_Count climbs correctly (fixed cas-bacnet-stack#2051 - the Start_Time/Stop_Time window is now built from the same clock, UTC via gmtime, that the stack itself compares against, not local wall-clock) - live-verified: Record_Count climbed from 14 to 44 over 30 seconds. Total_Record_Count (145) is listed in Property_List and climbs with Record_Count (checked by hand at 64b2cfac5; the phase-1 'missing' note read property 322 by mistake - TODO.md). (The #2050 log flood is fixed.)
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|
@@ -397,12 +405,12 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Buffer_Size | Unsigned32 | stack default, accepted (Generic UnsignedInteger default: `0`) | no |
 | Log_Buffer | BACnetLIST of BACnetLogRecord | stack default, accepted (None known - a read fails with `unknown-property` or an empt) | no |
 | Record_Count | Unsigned32 | stack default, accepted (Generic UnsignedInteger default: `0`) | no |
-| Total_Record_Count | Unsigned32 | ⚠ stack default (Generic UnsignedInteger default: `0`) | no |
+| Total_Record_Count | Unsigned32 | stack default, accepted (Generic UnsignedInteger default: `0`) | no |
 | Logging_Type | BACnetLoggingType | stack default, accepted (Generic Enumerated default: `0`) | no |
 | Status_Flags | BACnetStatusFlags | stack | no |
 | Event_State | BACnetEventState | stack default, accepted (Generic Enumerated default: `0`) | no |
 
-### Trend Log Multiple 1 "Magenta" - T-VMT-I-B / T-ATR-B. Enable is NOT a stack default - it is genuinely held and served by the stack's Trend Log Multiple engine (BACnetStack_AddTrendLogMultipleObject + AddLoggedObjectToTrendLogMultiple x3 + SetTrendLogTypeToPolled), marked accepted only because property-profile-reference.md's generic table does not know about this host-configuration API. Polls three points every second: Analog Input 1 (Bronze), Analog Value 1 (Diamond) and Analog Output 1 (Chartreuse) Present_Value. This is the example's working, live-verified polled-logging + ReadRange demonstration: Record_Count climbed from 0 to 150+ across several live runs, and ReadRange (RangeByPosition, first=1, count=5) returned real LogMultipleRecord entries. STACK DEFECT at 64b2cfac5 (TODO.md): the required Total_Record_Count is missing here too. (The #2050 log flood is fixed.)
+### Trend Log Multiple 1 "Magenta" - T-VMT-I-B / T-ATR-B. Enable is NOT a stack default - it is genuinely held and served by the stack's Trend Log Multiple engine (BACnetStack_AddTrendLogMultipleObject + AddLoggedObjectToTrendLogMultiple x3 + SetTrendLogTypeToPolled), marked accepted only because property-profile-reference.md's generic table does not know about this host-configuration API. Polls three points every second: Analog Input 1 (Bronze), Analog Value 1 (Diamond) and Analog Output 1 (Chartreuse) Present_Value. This is the example's working, live-verified polled-logging + ReadRange demonstration: Record_Count climbed from 0 to 150+ across several live runs, and ReadRange (RangeByPosition, first=1, count=5) returned real LogMultipleRecord entries. Total_Record_Count (145) is listed and climbs with Record_Count (checked by hand at 64b2cfac5). (The #2050 log flood is fixed.)
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|

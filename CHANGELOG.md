@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - unreleased
+
+The example is now **Profile-functional** (series glossary): it performs the
+B-BC Profile Function against a Peer, shows a Failure Mode, and Wire Tests that
+fail when either is removed prove both.
+
+### Added
+
+- **DS-RP-A and DS-RPM-A - the controller reads another device.** `main.cpp`
+  section 2e learns peer device 389002's address from its I-Am
+  (`BACnetStack_RegisterHookIAm`) and polls its Analog Input 1 (humidity, %)
+  once a second, alternating ReadProperty (`Present_Value`) and
+  ReadPropertyMultiple (`Present_Value` + `Status_Flags`). The answers are
+  decoded in the receive callback, because the stack has no callback that
+  delivers a ReadProperty-ACK's value; every datagram still goes on to the
+  stack. The reading becomes Analog Value 1 "Diamond"'s `Present_Value`, so
+  Diamond's OutOfRange alarm and Trend Log Multiple 1's trend now act on a
+  value from another device.
+- **Failure Mode - the peer goes silent.** After 3 s without any answer,
+  Diamond reports `Reliability` = `communication-failure` (and so the
+  `Status_Flags` FAULT bit, cl. 12.4.6), keeps its last good value and keeps
+  probing the peer; it recovers when the peer answers. A peer that answers but
+  flags its own sensor FAULT makes Diamond `unreliable-other` and holds the
+  last good value.
+- **Wire Tests** `tests/controller_test.py` (15 checks: both reads, Diamond
+  following the peer, the alarm on the remote value, the peer-sensor-fault
+  hold, Schedule 1's write to a peer that bound after start-up, Diamond
+  read-only) and `tests/failure_mode_test.py` (7 checks), with
+  `tests/bc_setup.py` and its `HumidityPeer` - a Python Peer (wiretest's
+  `SimulatedDevice` plus ReadProperty / ReadPropertyMultiple / WriteProperty
+  of an Analog Input and Output, a FAULT flag and a silent switch). Standard
+  library only; `run_wire_tests.py` runs them. Every check was mutation-verified
+  (the feature removed, the check seen to fail).
+
+### Changed
+
+- **Analog Value 1 "Diamond" is read-only** and has the optional
+  `Reliability` property: its value belongs to the peer. To fire its alarm,
+  drive the peer's Analog Input 1 above 90 or below 10 (it used to be a
+  WriteProperty to Diamond).
+- **The example owns its BACnet/IP socket** (`SimpleUDP` + its own
+  receive/send callbacks, as B-OD-CPP does) instead of
+  `CASExampleHelper::SetupUDP()`, so its receive callback can see the replies.
+  Console output is unchanged.
+- README (the scenario, what is Simulation, status), PICS (DS-RP-A / DS-RPM-A
+  "Yes", ReadProperty / ReadPropertyMultiple initiated, Diamond's
+  properties), TUTORIAL ("Reading another device"), TODO.md.
+
+### Fixed
+
+- **`Total_Record_Count` is not missing.** The 1.0.8 note that both Trend Logs
+  lack it read property 322 by mistake; property 145 is in both objects'
+  `Property_List` and climbs with `Record_Count` (checked by hand at
+  `64b2cfac5`). README, PICS and TODO.md no longer report a stack gap.
+
 ## [1.0.8] - unreleased
 
 ### Added

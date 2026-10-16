@@ -101,6 +101,14 @@ Input 1, `s` advance Schedule 1 (Saffron) to a transition right now.
   `tests/sched_e_b_remote_peer.py`: it plays device 389002 and sends a
   unicast I-Am so the DAB resolves it. A write made before the peer is bound
   is kept until it binds (stack #2343, fixed at the pin).
+- **DS-RP-A / DS-RPM-A (section 2e):** the example polls peer 389002's
+  Analog Input 1 into Analog Value 1 "Diamond" and decodes the ACKs in its own
+  receive callback - the stack has no callback that delivers a
+  ReadProperty-ACK's value. That is why `main.cpp` owns its `SimpleUDP`
+  socket and registers its own transport callbacks after
+  `RegisterCommonCallbacks()`; do not switch it back to
+  `CASExampleHelper::SetupUDP()`. Diamond is read-only and its `Reliability`
+  reports comms loss (3 s without an answer) - `tests/failure_mode_test.py`.
 - **Calendar 1 (Cream) is stack-held** (`BACnetStack_AddCalendarObject`,
   stack IFC-045): the stack stores `Date_List` and derives `Present_Value`.
   Don't serve either from a callback, because the stack answers first.
@@ -129,8 +137,10 @@ Input 1, `s` advance Schedule 1 (Saffron) to a transition right now.
 
 ## How to verify a change
 
-The Wire Tests in `tests/` automate steps 2-3 and the SCHED-E-B and Calendar
-checks (README "Wire Tests"): `python3 tests/run_wire_tests.py --exe
+The Wire Tests in `tests/` automate steps 2-3, the Profile Function
+(`controller_test.py`: reading the peer, the alarm on its value, the remote
+Schedule write), the Failure Mode (`failure_mode_test.py`) and the SCHED-E-B
+and Calendar checks (README "Wire Tests"): `python3 tests/run_wire_tests.py --exe
 build/BACnetExampleBBC` (bacpypes3 needed: `pip install -r tests/requirements.txt`).
 Run them after any change. Beyond them, verification is behavioural:
 
@@ -144,8 +154,9 @@ Run them after any change. Beyond them, verification is behavioural:
    it (and its `Priority_Array`), then write NULL to relinquish and confirm it
    falls back to `Relinquish_Default`. Confirm a write to a read-only input is
    rejected.
-5. **Alarming**: WriteProperty Analog Value 1 "Diamond" `Present_Value` above the
-   high limit; confirm `Event_State` goes to `high-limit`. AcknowledgeAlarm
+5. **Alarming**: drive the peer's Analog Input 1 (Diamond follows it; Diamond
+   itself is read-only) above the high limit; confirm Diamond's `Event_State`
+   goes to `high-limit`. AcknowledgeAlarm
    and GetEventInformation both respond.
 6. **AE-CRL-B**: WriteProperty Notification Class 1 "Crimson" `Recipient_List`
    with a new destination; fire another alarm and confirm it reaches the new
@@ -162,8 +173,7 @@ Run them after any change. Beyond them, verification is behavioural:
 10. If you changed the objects or their properties, regenerate
     `docs/PICS.md` (`python tools/gen-objects-properties.py
     BACnetProfileExample-B-BC-CPP` from the series root) and confirm no row
-    comes out flagged with ⚠ - except Trend Log 1's `Total_Record_Count`, a
-    stack defect at this pin (`TODO.md`).
+    comes out flagged with ⚠.
 
 `tests/run_wire_tests.py` runs every Wire Test, starting a fresh device for each;
 CI runs it on Linux.
