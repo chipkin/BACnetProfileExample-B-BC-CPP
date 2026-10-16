@@ -42,6 +42,13 @@ fail when either is removed prove both.
 
 ### Changed
 
+- **`common/` 3.3.0 -> 3.4.0**, copied verbatim from B-SS-CPP `5d78299`: `HelperSendMessage`
+  sends a broadcast addressed to this socket's own address to the subnet broadcast instead of
+  unicast to itself (stack #3933). README version lines updated.
+- `tests/discovery_test.py` sends its Who-Is once more, with a visible `[RETRY]` line, when no
+  I-Am comes back in 3 s (`tools/patch-discovery-whois-retry.py` from the example series).
+  Who-Is is unconfirmed, so nothing else retries it, and the example's UDP receive can drop a
+  datagram on Windows (`common/` SimpleUDP).
 - **Analog Value 1 "Diamond" is read-only** and has the optional
   `Reliability` property: its value belongs to the peer. To fire its alarm,
   drive the peer's Analog Input 1 above 90 or below 10 (it used to be a
