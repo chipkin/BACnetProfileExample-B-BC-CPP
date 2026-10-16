@@ -13,15 +13,12 @@ The setup, all on one host:
 Two instances on one host never hear each other's broadcasts, so the Peer introduces
 itself with a unicast I-Am (announce()); the controller learns its address from that.
 
-HumidityPeer is generic enough to move into wiretest/ (proposed for 0.6.0): it is
-wiretest.SimulatedDevice plus ReadProperty / ReadPropertyMultiple of a few objects,
-WriteProperty, a FAULT flag and a "silent" switch that makes it stop answering.
+HumidityPeer is wiretest.SimulatedServer (wiretest 0.6.0) configured as this Peer: its
+objects, which properties are writable, a FAULT flag and a "silent" switch.
 """
 import argparse
-import struct
 import sys
-import threading
-import time
+
 from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -40,11 +37,11 @@ SCHEDULE_DEFAULT_VALUE = 20.0          # SCHEDULE_DEFAULT_VALUE
 SCHEDULE_WRITE_PRIORITY = 8            # SCHEDULE_WRITE_PRIORITY
 COMMS_LOSS_SECONDS = 3.0               # REMOTE_COMMS_LOSS_MILLISECONDS
 
-SERVICE_READ_PROPERTY_MULTIPLE = 14
-PROPERTY_EVENT_STATE = 36
+SERVICE_READ_PROPERTY_MULTIPLE = codec.SERVICE_READ_PROPERTY_MULTIPLE
+PROPERTY_EVENT_STATE = codec.PROPERTY_EVENT_STATE
 EVENT_STATE_NORMAL = 0
 EVENT_STATE_HIGH_LIMIT = 3
-RELIABILITY_UNRELIABLE_OTHER = 7
+RELIABILITY_UNRELIABLE_OTHER = codec.RELIABILITY_UNRELIABLE_OTHER
 ERROR_CODE_WRITE_ACCESS_DENIED = codec.ERROR_CODE_WRITE_ACCESS_DENIED
 
 # Long enough for a poll (1 s), its answer, and the stack's next tick; or for the
@@ -64,142 +61,71 @@ def start_controller(args):
     return wiretest.start(args.exe, ["--port", args.port], "building-controller")
 
 
-def status_flags(bits):
-    """An application-tagged BACnetStatusFlags BIT STRING (4 bits used: in-alarm, fault,
-    overridden, out-of-service - cl. 12.4 / 21)."""
-    octet = 0
-    for position, bit in enumerate(bits):
-        if bit:
-            octet |= 0x80 >> position
-    return bytes([0x82, 0x04, octet])
+status_flags = codec.status_flags   # wiretest 0.6.0
 
 
-class HumidityPeer(wiretest.SimulatedDevice):
+class HumidityPeer(wiretest.SimulatedServer):
     """A Python BACnet/IP device with a humidity sensor (Analog Input 1, REAL percent) and a
     commandable Analog Output 1. The test sets `humidity`, `fault` (its sensor's Status_Flags
     FAULT) and `silent` (answer nothing at all - a pulled cable), and reads back what the
-    controller asked for (`requests`) and wrote (`writes`)."""
+    controller asked for (`requests`, `reads()`) and wrote (`writes`)."""
 
     def __init__(self, humidity, device_instance=PEER_DEVICE_INSTANCE, object_name="humidity peer 389002"):
         self.humidity = humidity
         self.fault = False
-        self.silent = False
-        self.requests = []        # (service, [(object_type, instance, [property ids])]) per confirmed read
-        self.writes = []          # (object_type, instance, property, value, priority)
-        self.requests_while_silent = 0
         self.analog_output = 0.0
-        self._state = threading.Lock()
-        super().__init__(device_instance, object_name)
+        self.writes = []          # (object_type, instance, property, value, priority) per accepted write
+        analog_input = (codec.OBJECT_TYPE_ANALOG_INPUT, PEER_ANALOG_INPUT_INSTANCE)
+        analog_output = (codec.OBJECT_TYPE_ANALOG_OUTPUT, PEER_ANALOG_OUTPUT_INSTANCE)
+        objects = {
+            analog_input: {
+                codec.PROPERTY_PRESENT_VALUE: lambda: codec.application_real(self.humidity),
+                codec.PROPERTY_STATUS_FLAGS: lambda: status_flags([False, self.fault, False, False]),
+            },
+            analog_output: {
+                codec.PROPERTY_PRESENT_VALUE: lambda: codec.application_real(self.analog_output),
+                codec.PROPERTY_STATUS_FLAGS: status_flags([False, False, False, False]),
+            },
+        }
+        super().__init__(device_instance, object_name, objects,
+                         writable={analog_output + (codec.PROPERTY_PRESENT_VALUE,)})
+
+    @property
+    def silent(self):
+        return self.mode == "offline"
+
+    @silent.setter
+    def silent(self, value):
+        self.mode = "offline" if value else "online"
+
+    @property
+    def requests(self):
+        """(service, [(object_type, instance, [property ids])]) per confirmed read of a listed object."""
+        return self.read_requests
+
+    @property
+    def requests_while_silent(self):
+        return self.requests_while_offline
 
     def announce(self, controller_port, times=3):
         """Unicast I-Am to the controller - how it learns this Peer's address."""
-        frame = codec.bvlc(codec.npdu(codec.i_am(self.device_instance, self.vendor_identifier)))
-        for _ in range(times):
-            self.sock.sendto(frame, ("127.0.0.1", controller_port))
-            time.sleep(0.2)
+        super().announce(controller_port, times=times)
 
-    def reads(self, service):
-        with self._state:
-            return [specifications for kind, specifications in self.requests if kind == service]
-
-    # -- answering ----------------------------------------------------------
-
-    def _answer(self, frame):
-        is_read = frame.pdu_type == codec.PDU_CONFIRMED_REQUEST and frame.service in (
-            codec.SERVICE_READ_PROPERTY, SERVICE_READ_PROPERTY_MULTIPLE, codec.SERVICE_WRITE_PROPERTY)
-        if self.silent:
-            if is_read:
-                with self._state:
-                    self.requests_while_silent += 1
-            return None
-        if frame.pdu_type == codec.PDU_CONFIRMED_REQUEST:
-            if frame.service == codec.SERVICE_READ_PROPERTY:
-                request = codec.parse_read_property_request(frame.payload)
-                if request is not None and request[0] != codec.OBJECT_TYPE_DEVICE:
-                    with self._state:
-                        self.requests.append((codec.SERVICE_READ_PROPERTY, [(request[0], request[1], [request[2]])]))
-                    return self._read_one(frame.invoke_id, *request)
-            elif frame.service == SERVICE_READ_PROPERTY_MULTIPLE:
-                return self._read_multiple(frame)
-            elif frame.service == codec.SERVICE_WRITE_PROPERTY:
-                return self._write(frame)
-        return super()._answer(frame)
-
-    def _value(self, object_type, instance, property_identifier):
-        """Application-tagged octets of one property, or None if this Peer has no such property."""
-        if (object_type, instance) == (codec.OBJECT_TYPE_ANALOG_INPUT, PEER_ANALOG_INPUT_INSTANCE):
-            if property_identifier == codec.PROPERTY_PRESENT_VALUE:
-                return codec.application_real(self.humidity)
-            if property_identifier == codec.PROPERTY_STATUS_FLAGS:
-                return status_flags([False, self.fault, False, False])
-        if (object_type, instance) == (codec.OBJECT_TYPE_ANALOG_OUTPUT, PEER_ANALOG_OUTPUT_INSTANCE):
-            if property_identifier == codec.PROPERTY_PRESENT_VALUE:
-                return codec.application_real(self.analog_output)
-            if property_identifier == codec.PROPERTY_STATUS_FLAGS:
-                return status_flags([False, False, False, False])
+    def check_write(self, request):
+        """Analog Output 1 takes a REAL only."""
+        if not isinstance(codec.decode_application(request["value_octets"]), float):
+            return (codec.ERROR_CLASS_PROPERTY, ERROR_CODE_WRITE_ACCESS_DENIED)
         return None
 
-    def _read_one(self, invoke_id, object_type, instance, property_identifier):
-        value = self._value(object_type, instance, property_identifier)
-        if value is None:
-            return codec.error_pdu(invoke_id, codec.SERVICE_READ_PROPERTY,
-                                   codec.ERROR_CLASS_PROPERTY, codec.ERROR_CODE_UNKNOWN_PROPERTY)
-        return codec.read_property_ack(invoke_id, object_type, instance, property_identifier, value)
-
-    def _read_multiple(self, frame):
-        """ReadPropertyMultiple (cl. 15.7): a ReadAccessResult per ReadAccessSpecification, each
-        property answered with [4] its value or [5] an Error."""
-        specifications = codec.read_access_specifications(frame.payload[4:])
-        with self._state:
-            self.requests.append((SERVICE_READ_PROPERTY_MULTIPLE,
-                                  [(object_type, instance, list(properties))
-                                   for (object_type, instance), properties in specifications.items()]))
-        body = b""
-        for (object_type, instance), properties in specifications.items():
-            body += codec.context_object_id(0, object_type, instance) + codec.opening(1)
-            for property_identifier in properties:
-                body += codec.context_unsigned(2, property_identifier)
-                value = self._value(object_type, instance, property_identifier)
-                if value is None:
-                    body += (codec.opening(5) + codec.application_enumerated(codec.ERROR_CLASS_PROPERTY) +
-                             codec.application_enumerated(codec.ERROR_CODE_UNKNOWN_PROPERTY) + codec.closing(5))
-                else:
-                    body += codec.opening(4) + value + codec.closing(4)
-            body += codec.closing(1)
-        return bytes([0x30, frame.invoke_id, SERVICE_READ_PROPERTY_MULTIPLE]) + body
-
-    def _write(self, frame):
-        """WriteProperty (cl. 15.9): [0] object, [1] property, [2] index?, [3] value, [4] priority?"""
-        octets = frame.payload
-        position = 4
-        object_identifier = property_identifier = priority = None
-        value_octets = b""
-        while position < len(octets):
-            number, is_context, kind, body, position = codec.read_tag(octets, position)
-            if kind == "value" and is_context and number == 0 and object_identifier is None:
-                raw = struct.unpack(">I", body)[0]
-                object_identifier = (raw >> 22, raw & codec.MAX_INSTANCE)
-            elif kind == "value" and is_context and number == 1:
-                property_identifier = int.from_bytes(body, "big")
-            elif kind == "open" and is_context and number == 3:
-                start = position
-                depth = 1
-                while depth:
-                    tag_start = position
-                    _, _, inner_kind, _, position = codec.read_tag(octets, position)
-                    depth += 1 if inner_kind == "open" else -1 if inner_kind == "close" else 0
-                value_octets = octets[start:tag_start]
-            elif kind == "value" and is_context and number == 4:
-                priority = int.from_bytes(body, "big")
-        value = codec.decode_application(value_octets)
-        with self._state:
-            self.writes.append((object_identifier[0], object_identifier[1], property_identifier, value, priority))
-        if (object_identifier == (codec.OBJECT_TYPE_ANALOG_OUTPUT, PEER_ANALOG_OUTPUT_INSTANCE) and
-                property_identifier == codec.PROPERTY_PRESENT_VALUE and isinstance(value, float)):
-            self.analog_output = value
-            return bytes([0x20, frame.invoke_id, codec.SERVICE_WRITE_PROPERTY])   # SimpleACK
-        return codec.error_pdu(frame.invoke_id, codec.SERVICE_WRITE_PROPERTY,
-                               codec.ERROR_CLASS_PROPERTY, ERROR_CODE_WRITE_ACCESS_DENIED)
+    def on_write(self, request):
+        value = codec.decode_application(request["value_octets"])
+        self.analog_output = value
+        # The stored octets are replaced by the written value; keep serving the attribute.
+        self.objects[(request["object_type"], request["instance"])][codec.PROPERTY_PRESENT_VALUE] = (
+            lambda: codec.application_real(self.analog_output))
+        with self._lock:
+            self.writes.append((request["object_type"], request["instance"], request["property_identifier"],
+                                value, request["priority"]))
 
 
 class Diamond:
@@ -234,13 +160,8 @@ def close_to(value, expected, tolerance=0.01):
 
 
 def wait_until(check, seconds=SETTLE_SECONDS, interval=0.2):
-    """Poll `check()` until it returns something truthy or `seconds` pass; returns its last result."""
-    deadline = time.monotonic() + seconds
-    while True:
-        result = check()
-        if result or time.monotonic() >= deadline:
-            return result
-        time.sleep(interval)
+    """wiretest.wait_until with this suite's settle time as the default."""
+    return wiretest.wait_until(check, seconds, interval)
 
 
 def reliability_name(value):

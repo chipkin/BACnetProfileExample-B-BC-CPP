@@ -37,12 +37,11 @@ BACnetExampleBBC  UDP --port               - Device 389005, the building control
 HumidityPeer (127.0.0.1, ephemeral port)   - Python, device 389002 (tests/bc_setup.py)
 ```
 
-`bc_setup.HumidityPeer` is the Peer: `wiretest.SimulatedDevice` plus
-ReadProperty and ReadPropertyMultiple of its Analog Input 1 (humidity, REAL %)
-and Analog Output 1, WriteProperty of Analog Output 1, a `fault` flag (its
-sensor's `Status_Flags` FAULT) and a `silent` switch (it answers nothing). It
-records every read and write it receives. It is profile-neutral and proposed
-for `wiretest/` 0.6.0.
+`bc_setup.HumidityPeer` is the Peer: `wiretest.SimulatedServer` (wiretest 0.6.0)
+configured with Analog Input 1 (humidity, REAL %) and Analog Output 1, ReadProperty and
+ReadPropertyMultiple of both, WriteProperty of Analog Output 1, a `fault` flag (its
+sensor's `Status_Flags` FAULT) and a `silent` switch (it answers nothing). It records
+every read and write it receives.
 
 ## `controller_test.py` - the Profile Function (15 checks)
 

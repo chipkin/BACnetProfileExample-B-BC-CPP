@@ -13,6 +13,7 @@ fail when either is removed prove both.
 
 ### Added
 
+- Wire Tests use the shared `wiretest/` 0.6.0: `HumidityPeer` is now a thin `wiretest.SimulatedServer` subclass, and `status_flags` / `wait_until` come from wiretest.
 - **DS-RP-A and DS-RPM-A - the controller reads another device.** `main.cpp`
   section 2e learns peer device 389002's address from its I-Am
   (`BACnetStack_RegisterHookIAm`) and polls its Analog Input 1 (humidity, %)
