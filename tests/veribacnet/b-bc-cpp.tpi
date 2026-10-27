@@ -1,0 +1,377 @@
+PICS 0
+BACnet Protocol Implementation Conformance Statement
+Vendor Name: "Chipkin Automation Systems"
+Product Name: "CAS BACnet Stack Example - B-BC"
+Product Model Number: "CAS BACnet Stack Example - B-BC"
+Product Description: "A BACnet/IP Building Controller built on the CAS BACnet Stack. It reads a humidity sensor in a peer device (ReadProperty and ReadPropertyMultiple), alarms on and trends that reading, and reports communication loss with the peer through Reliability. It presents fifteen objects spanning read-only sensors, commandable outputs, an intrinsic-alarming Analog Value with a writable event-recipient list, a Schedule that writes both a local and a remote object, Backup and Restore, and a Trend Log / Trend Log Multiple pair retrievable by ReadRange. It is a tutorial for implementers of the B-BC profile."
+
+BACnet Standardized Device Profiles Supported:
+{
+B-BC - BACnet Building Controller
+}
+
+BIBBs Supported:
+{
+DS-RP-A
+DS-RP-B
+DS-RPM-A
+DS-RPM-B
+DS-WP-A
+DS-WP-B
+DS-WPM-B
+AE-N-I-B
+AE-ACK-B
+AE-INFO-B
+AE-CRL-B
+SCHED-E-B
+T-VMT-I-B
+T-ATR-B
+DM-DDB-A
+DM-DDB-B
+DM-DOB-B
+DM-DCC-B
+DM-RD-B
+DM-BR-B
+DM-TS-B
+DM-UTC-B
+}
+
+BACnet Standard Application Services Supported:
+{
+AcknowledgeAlarm Execute
+ConfirmedEventNotification Initiate
+AtomicReadFile Execute
+AtomicWriteFile Execute
+ReadProperty Execute
+ReadPropertyMultiple Execute
+WriteProperty Execute
+WritePropertyMultiple Execute
+DeviceCommunicationControl Execute
+ReinitializeDevice Execute
+IAm Initiate Execute
+IHave Initiate
+UnconfirmedEventNotification Initiate
+TimeSynchronization Execute
+WhoHas Execute
+WhoIs Initiate Execute
+ReadRange Execute
+UTCTimeSynchronization Execute
+GetEventInformation Execute
+}
+
+Standard Object Types Supported:
+{
+Analog Input
+Analog Output
+Analog Value
+Binary Input
+Binary Output
+Calendar
+Device
+File
+Multi-state Input
+Multi-state Output
+Notification Class
+Schedule
+Trend Log
+Trend Log Multiple
+Network Port
+}
+
+Data Link Layer Option:
+{
+BACnet IP, (Annex J)
+}
+
+Character Sets Supported:
+{
+ISO 10646 (UTF-8) / ANSI X3.4
+}
+
+Special Functionality:
+{
+Maximum APDU size in octets: 1476
+Segmented Requests Supported, window size: 1
+Segmented Responses Supported, window size: 1
+}
+
+Default Property Value Restrictions:
+{
+unsigned-integer: <minimum: 0; maximum: 65535>
+signed-integer: <minimum: -2147483648; maximum: 2147483647>
+real: <minimum: -3.4e+38; maximum: 3.4e+38; resolution: 0.01>
+character-string: <maximum length string: 64>
+octet-string: <maximum length string: 256>
+list: <maximum length list: 10>
+}
+
+Fail Times:
+{
+Notification Fail Time: 60
+Internal Processing Fail Time: 2
+Minimum ON/OFF Time: 2
+Schedule Evaluation Fail Time: 2
+External Command Fail Time: 5
+Program Object State Change Fail Time: 5
+Acknowledgement Fail Time: 2
+Slave Proxy Confirm Interval: 6
+Unconfirmed Response Fail Time: 4
+Activate Changes Fail Time: 30
+Auto Negotiation Fail Time: 15
+Foreign Device Registration Fail Time: 10
+Channel Write Fail Time: 30
+}
+
+List of Objects in test device:
+{
+{
+object-identifier: (analog-input, 1)
+object-name: "Bronze"
+object-type: ANALOG_INPUT
+event-state: ?
+out-of-service: FALSE
+present-value: ?
+status-flags: ?
+units: DEGREES-CELSIUS
+},
+{
+object-identifier: (analog-output, 1)
+object-name: "Chartreuse"
+object-type: ANALOG_OUTPUT
+event-state: NORMAL
+out-of-service: FALSE
+present-value: ? W
+priority-array: {?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?} R
+relinquish-default: 20
+status-flags: (F,F,F,F)
+units: DEGREES-CELSIUS
+current-command-priority: ?
+},
+{
+object-identifier: (analog-value, 1)
+object-name: "Diamond"
+object-type: ANALOG_VALUE
+acked-transitions: ?
+notification-class: 1
+deadband: 2
+event-enable: (T,F,T)
+event-state: ?
+high-limit: 90
+limit-enable: (T,T)
+low-limit: 10
+notify-type: ALARM
+out-of-service: FALSE
+present-value: ?
+reliability: ?
+status-flags: ?
+time-delay: 0
+units: PERCENT
+event-time-stamps: ?
+event-detection-enable: TRUE
+event-algorithm-inhibit: FALSE
+time-delay-normal: 0
+reliability-evaluation-inhibit: FALSE
+},
+{
+object-identifier: (binary-input, 1)
+object-name: "Emerald"
+object-type: BINARY_INPUT
+event-state: ?
+out-of-service: FALSE
+polarity: NORMAL
+present-value: ?
+status-flags: ?
+},
+{
+object-identifier: (binary-output, 1)
+object-name: "Fuchsia"
+object-type: BINARY_OUTPUT
+event-state: NORMAL
+out-of-service: FALSE
+polarity: NORMAL
+present-value: INACTIVE W
+priority-array: {?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?} R
+relinquish-default: INACTIVE
+status-flags: (F,F,F,F)
+current-command-priority: ?
+},
+{
+object-identifier: (calendar, 1)
+object-name: "Cream"
+object-type: CALENDAR
+date-list: ? W
+present-value: ?
+},
+{
+object-identifier: (device, 389005)
+object-name: "Chipkin Example B-BC"
+object-type: DEVICE
+apdu-segment-timeout: 5000
+apdu-timeout: 10000
+application-software-version: "1.2.0"
+daylight-savings-status: ?
+description: "Chipkin CAS BACnet Stack example - B-BC (Building Controller) profile, the series capstone. Demonstrates DS-RP/RPM/WP/WPM-A/B, intrinsic alarming, SCHED-E-B, trending, DM-DCC-B, DM-TS-B/UTC-B, DM-RD-B, and DM-BR-B."
+device-address-binding: ?
+firmware-revision: "6.0.23.0"
+local-date: ?
+local-time: ?
+max-apdu-length-accepted: 1476
+model-name: "CAS BACnet Stack Example - B-BC"
+number-of-apdu-retries: 3
+object-list: {(analog-input, 1), (analog-output, 1), (analog-value, 1), (binary-input, 1), (binary-output, 1), (calendar, 1), (device, 389005), (file, 1), (multi-state-input, 1), (multi-state-output, 1), (notification-class, 1), (schedule, 1), (trend-log, 1), (trend-log-multiple, 1), (network-port, 1)}
+protocol-object-types-supported: (T,T,T,T,T,F,T,F,T,F,T,F,F,T,T,T,F,T,F,F,T,F,F,F,F,F,F,T,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,F,T,F,F,F,F,F,F,F,F)
+protocol-services-supported: (T,F,T,F,F,F,T,T,F,F,F,F,T,F,T,T,T,T,F,F,T,F,F,F,F,F,T,T,F,T,F,F,T,T,T,T,T,F,F,T,F,F,F,F,F,F,F,F,F,F)
+protocol-version: 1
+segmentation-supported: SEGMENTED-BOTH
+system-status: OPERATIONAL
+utc-offset: 0
+vendor-identifier: 389
+vendor-name: "Chipkin Automation Systems"
+protocol-revision: 30
+backup-failure-timeout: 120
+configuration-files: {(file, 1)}
+database-revision: 14
+last-restore-time: ?
+max-segments-accepted: 16
+backup-and-restore-state: IDLE
+backup-preparation-time: 5
+restore-completion-time: 5
+restore-preparation-time: 5
+},
+{
+object-identifier: (file, 1)
+object-name: "Ivory"
+object-type: FILE
+archive: FALSE W
+file-access-method: STREAM-ACCESS
+file-size: 0
+file-type: "application/octet-stream"
+modification-date: {{2026, 1, 1, 4}, {0, 0, 0, 0}}
+read-only: FALSE
+},
+{
+object-identifier: (multi-state-input, 1)
+object-name: "Hot Pink"
+object-type: MULTI_STATE_INPUT
+event-state: ?
+number-of-states: 3
+out-of-service: FALSE
+present-value: ?
+state-text: {"On", "Off", "Auto"}
+status-flags: ?
+},
+{
+object-identifier: (multi-state-output, 1)
+object-name: "Indigo"
+object-type: MULTI_STATE_OUTPUT
+event-state: NORMAL
+number-of-states: 3
+out-of-service: FALSE
+present-value: 1 W
+priority-array: {?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?} R
+relinquish-default: 1
+status-flags: (F,F,F,F)
+current-command-priority: ?
+},
+{
+object-identifier: (notification-class, 1)
+object-name: "Crimson"
+object-type: NOTIFICATION_CLASS
+ack-required: (T,F,T)
+priority: {100, 50, 200}
+recipient-list: ? W
+},
+{
+object-identifier: (schedule, 1)
+object-name: "Saffron"
+object-type: SCHEDULE
+effective-period: {(*-*-*), (*-*-*)}
+exception-schedule: ?
+list-of-object-property-references: ?
+out-of-service: FALSE
+present-value: ?
+priority-for-writing: 8
+reliability: NO-FAULT-DETECTED
+status-flags: (F,F,F,F)
+weekly-schedule: ?
+schedule-default: 20
+},
+{
+object-identifier: (trend-log, 1)
+object-name: "Lilac"
+object-type: TREND_LOG
+acked-transitions: ?
+notification-class: 1
+event-enable: (T,F,T)
+event-state: NORMAL
+notify-type: EVENT
+reliability: NO-FAULT-DETECTED
+status-flags: (F,F,F,F)
+buffer-size: 200
+client-COV-increment: ?
+event-time-stamps: ?
+log-buffer: ?
+log-device-object-property: {(analog-input, 1), 85}
+enable: TRUE W
+log-interval: 100 W
+notification-threshold: 30
+records-since-notification: ?
+record-count: ? W <minimum: 0; maximum: 0>
+start-time: ?
+stop-time: ?
+stop-when-full: FALSE
+total-record-count: ?
+last-notify-record: ?
+logging-type: POLLED
+trigger: FALSE
+event-detection-enable: TRUE
+event-algorithm-inhibit: FALSE
+reliability-evaluation-inhibit: FALSE
+},
+{
+object-identifier: (trend-log-multiple, 1)
+object-name: "Magenta"
+object-type: TREND_LOG_MULTIPLE
+event-state: NORMAL
+status-flags: (F,F,F,F)
+buffer-size: 200
+log-buffer: ?
+log-device-object-property: ?
+enable: TRUE W
+log-interval: 100 W
+record-count: ? W <minimum: 0; maximum: 0>
+start-time: {(*-*-*), *:*:*.*}
+stop-time: {(*-*-*), *:*:*.*}
+stop-when-full: FALSE
+total-record-count: ?
+logging-type: POLLED
+trigger: FALSE
+},
+{
+object-identifier: (network-port, 1)
+object-name: "Vermilion"
+object-type: NETWORK_PORT
+out-of-service: FALSE
+reliability: NO-FAULT-DETECTED
+status-flags: (F,F,F,F)
+apdu-length: 1476
+ip-address: "host-specific (not recorded)"
+ip-default-gateway: "host-specific (not recorded)"
+ip-dns-server: "host-specific (not recorded)"
+bacnet-ip-mode: NORMAL
+ip-subnet-mask: "host-specific (not recorded)"
+bacnet-ip-udp-port: 47838
+changes-pending: FALSE
+command: IDLE
+fd-bbmd-address: "host-specific (not recorded)"
+fd-subscription-lifetime: 0
+link-speed: ?
+mac-address: "host-specific (not recorded)"
+network-number: 0
+network-number-quality: UNKNOWN
+network-type: IPV4
+protocol-level: BACNET-APPLICATION
+command-validation-result: {{(*-*-*), *:*:*.*}, {OBJECT, SUCCESS}}
+},
+}
+End of BACnet Protocol Implementation Conformance Statement

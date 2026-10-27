@@ -1,10 +1,13 @@
 # TODO - known gaps (each checked against the pinned stack source and/or the wire, not assumed)
 
-Stack pin: `64b2cfac5` (`6.x`, 2026-10-15, reports 6.0.23). Re-checked 2026-10-15 when the pin
-moved from `00aa2d0e` (`issues/runbook`, 6.0.22). The pin is back on `6.x`: the stack-held
-Calendars this example needed (#1758) reached `6.x`.
+Stack pin: `69b6249f` (`6.x`, 2026-10-25, reports 6.0.23). Re-checked 2026-10-26 when the pin
+moved from `4238a39f`: clean build (0 warnings), every Wire Test passes, segmentation both.
+Before that, `4238a39f` (2026-10-23) was re-checked 2026-10-24 when the pin moved from
+`64b2cfac5`: clean build (0 warnings), every Wire Test passes, every listed property
+reads, segmentation both. Before that, `64b2cfac5` (2026-10-15) moved it from `00aa2d0e`
+(`issues/runbook`, 6.0.22), when the stack-held Calendars this example needed (#1758) reached `6.x`.
 
-This example is **Profile-functional** (series `docs/GLOSSARY.md`) since 1.1.0: the Wire
+This example is **Profile-functional** (series `docs/GLOSSARY.md`) since 1.1.0 (this file is current at release 1.2.0): the Wire
 Tests prove it reading a peer (DS-RP-A, DS-RPM-A), acting on the reading, writing the peer
 (DS-WP-A, SCHED-E-B) and handling the peer going silent. No `[KNOWN GAP]` - nothing in this
 example's Profile Function is blocked by the stack at this pin. What is left is this example's
@@ -20,6 +23,42 @@ own scope (bottom of this file).
   Trend Log 1 and Trend Log Multiple 1 and reads a value that climbs with `Record_Count`
   (0 -> 4 on Trend Log 1, 8 -> 11 on Trend Log Multiple 1, three seconds apart). The phase-1
   probe had read 322 (Access_Event_Tag).
+
+## Resolved in 1.2.0
+
+- **A time synchronisation now sets the device clock** (DM-TS-B, DM-UTC-B); Wire Test `time_sync_test.py`.
+- **Trend Log 1 reports BUFFER_READY** (T-ATR-B) every 30 new records through Notification Class 1;
+  Wire Test `trend_retrieval_test.py`.
+- **DS-RPM-A falls back to ReadProperty** when a peer rejects ReadPropertyMultiple; Wire Test
+  `rpm_fallback_test.py`.
+- **`--deviceName`** (and `--deviceID`) make the Device's identity configurable; Wire Test
+  `configuration_test.py`.
+- **Trend Log writable properties** (`Enable`, `Record_Count`, `Log_Interval`) are in the PICS; Wire Test
+  `trend_log_write_test.py`.
+
+## Known limitations at 1.2.0
+
+None of these is a stack gap; they are this example's design, listed so a support request can quote them.
+
+- **All state is in memory.** Nothing is saved across a restart: Notification Class 1's `Recipient_List`
+  (writable over the network), Calendar 1's `Date_List`, the Trend Logs' records, Schedule 1's exceptions and
+  File 1 return to their start-up values. The Device's instance and name come from `--deviceID` and
+  `--deviceName` at each start.
+- **Analog Value 1 "Diamond" cannot be driven from the network.** Its value is the controller's copy of
+  peer 389002's Analog Input 1, so `Present_Value` and `Out_Of_Service` refuse writes (write-access-denied).
+  Test steps that must force an alarm on it need the peer, or an operator (ref:
+  `chipkin/chipkin-bacnet-testing-tool#680`).
+- **Trend Log 1's BUFFER_READY to-normal needs an acknowledgement** (Notification Class 1 has Ack_Required
+  TRUE for to-normal) and AcknowledgeAlarm accepts Diamond only, so that transition stays unacknowledged in
+  GetEventInformation. The behaviour is conformant; a second Notification Class with no acknowledgement
+  would remove the wrinkle (Database_Revision 14 -> 15) and is not done.
+- **`Record_Count` accepts only a write of 0** (it clears the log); any other value is refused with
+  INVALID_VALUE_IN_THIS_STATE, because 135-2024 cl. 12.25.15 defines only that write
+  (ref: `chipkin/chipkin-bacnet-testing-tool#732`, a test-tool report).
+- **No peer, no reading.** Without a device 389002 on the network Diamond reports `communication-failure`
+  (documented behaviour, not a fault).
+- **Alarm acknowledgement, AE-CRL-B redirection and trend retrieval with ReadRange** are checked by hand
+  or by BTL tests rather than a dedicated Wire Test; see the next-steps list at the bottom.
 
 ## Not applicable here (checked)
 

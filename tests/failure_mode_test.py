@@ -20,7 +20,7 @@ the controller's way to say so.
   - the Peer answers again with a new reading: Reliability no-fault-detected, FAULT clear,
     and Diamond takes the new value (55.0).
 
-    python3 tests/failure_mode_test.py [--exe build/BACnetExampleBBC] [--port 47864]
+    python3 tests/failure_mode_test.py [--exe build/BACnetExampleBBC] [--port 47838]
 
 Exit code 0 = every check passed.
 """

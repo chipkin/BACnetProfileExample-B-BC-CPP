@@ -30,7 +30,7 @@ Analog Output 1. Checked here:
   - Diamond itself is read-only now (its value belongs to the Peer): a WriteProperty to
     its Present_Value is refused.
 
-    python3 tests/controller_test.py [--exe build/BACnetExampleBBC] [--port 47864]
+    python3 tests/controller_test.py [--exe build/BACnetExampleBBC] [--port 47838]
 
 Exit code 0 = every check passed.
 """

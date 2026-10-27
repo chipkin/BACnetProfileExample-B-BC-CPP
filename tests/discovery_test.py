@@ -3,7 +3,7 @@
 # Public-domain example code (CC0) - see ../LICENSE.
 """B-BC discovery: read every property the building controller says it has, the way a client does.
 
-    python3 tests/discovery_test.py [--exe build/BACnetExampleBBC] [--port 47864]
+    python3 tests/discovery_test.py [--exe build/BACnetExampleBBC] [--port 47838]
 
 What a BACnet client such as Chipkin BACnet Explorer does when it discovers a device,
 done over the wire from outside the example:
@@ -102,8 +102,8 @@ def parser():
     arguments = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     arguments.add_argument("--exe", default=str(wiretest.default_exe(REPOSITORY, "BACnetExampleBBC")),
                            help="path to BACnetExampleBBC (default: build/BACnetExampleBBC)")
-    arguments.add_argument("--port", type=int, default=47864,
-                           help="the building controller's UDP port (default 47864)")
+    arguments.add_argument("--port", type=int, default=47838,
+                           help="the building controller's UDP port (default 47838)")
     return arguments
 
 

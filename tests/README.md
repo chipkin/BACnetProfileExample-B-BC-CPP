@@ -23,7 +23,7 @@ python3 tests/run_wire_tests.py --exe build/BACnetExampleBBC
 
 On Windows, `--exe build\Release\BACnetExampleBBC.exe`. It ends with
 `ALL WIRE TESTS PASSED` (exit 0) or the scripts that failed. `--port` (default
-47864) is the UDP port the runner starts the device on; the runner starts a
+47838) is the UDP port the runner starts the device on; the runner starts a
 fresh device for each script. It takes about two minutes. CI
 (`.github/workflows/release.yml`) runs it on Linux after the smoke test.
 
@@ -130,6 +130,86 @@ property; TODO.md.)
 
 At stack `64b2cfac5`: 23/23 on Windows (STATIC) and Linux (WSL Ubuntu 22.04,
 SOURCE build), 223 reads, no `[RETRY]`, no change to `main.cpp` needed.
+
+## `configuration_test.py` - the Device's identity is configurable at start-up
+
+BACnet requires the Device's `Object_Identifier` and `Object_Name` to be
+configurable (135-2024 cl. 12.1.1.3, 12.1.1.4), and `Object_Name` must be
+unique across the internetwork. Python 3 standard library only; it starts the
+controller several times:
+
+1. **Control:** no options -> Device 389005 answers Who-Is, `Object_Name` is
+   the default "Chipkin Example B-BC".
+2. `--deviceID 389905 --deviceName "Chipkin Example B-BC Unit 2"` -> Who-Is,
+   ReadProperty `Object_Name`, the ready line and Who-Has by name all show the
+   configured instance and name; 389005 answers Error OBJECT / UNKNOWN_OBJECT; a
+   WriteProperty of the Device's `Object_Name` is refused and the name is
+   unchanged.
+3. An empty or 256-byte `--deviceName` keeps the default with a warning; a
+   255-byte one is kept whole.
+4. `--help` lists `--port`, `--deviceID`, `--deviceName` and `--xml`, and not
+   `--dcc-password` (the DeviceCommunicationControl password is a source
+   constant); `--xml` prints each frame as XML.
+
+## `trend_retrieval_test.py` - Trend Log 1 says when it has new records (T-ATR-B)
+
+Python 3 standard library only. Trend Log 1 "Lilac" logs Analog Input 1 once a
+second and reports BUFFER_READY (135-2024 cl. 13.3.7) through Notification Class 1
+every 30 new records.
+
+1. Lilac reads `Notification_Class` 1, `Notify_Type` EVENT, `Notification_Threshold`
+   30, `Event_State` normal.
+2. The workstation puts itself in Notification Class 1's `Recipient_List`.
+3. Within 50 s it receives an UnconfirmedEventNotification from Lilac: event type
+   BUFFER_READY, notify type EVENT, NORMAL -> NORMAL.
+4. `Last_Notify_Record` and `Records_Since_Notification` follow the notification.
+5. The `Recipient_List` is restored.
+
+Before Lilac reported BUFFER_READY, it had no `Notification_Class` (unknown
+property), so the first check failed.
+
+## `trend_log_write_test.py` - which Trend Log properties can be written
+
+Python 3 standard library only. For Trend Log 1 and Trend Log Multiple 1:
+
+1. WriteProperty of `Enable` (TRUE), `Log_Interval` (its current value) and
+   `Record_Count` (0) is accepted; after the `Record_Count` write the buffer
+   holds only the records logged since.
+2. WriteProperty of `Stop_When_Full`, `Buffer_Size` and `Total_Record_Count` is
+   refused with write-access-denied, and each value reads back unchanged.
+
+## `rpm_fallback_test.py` - ReadProperty when the peer has no ReadPropertyMultiple (DS-RPM-A)
+
+Python 3 standard library only. The humidity Peer of `controller_test.py`, but it
+answers every ReadPropertyMultiple with Reject, unrecognized-service.
+
+1. Diamond takes the Peer's value; the controller tried ReadPropertyMultiple once and
+   was rejected.
+2. For the next 6 s: no further ReadPropertyMultiple, ReadProperty polls go on, and
+   Diamond's Reliability stays no-fault-detected.
+3. Diamond follows a new humidity on ReadProperty alone.
+
+Before the fallback the controller kept sending ReadPropertyMultiple every other
+second and Diamond read unreliable-other after each Reject.
+
+## `time_sync_test.py` - the clock follows a time synchronization (DM-TS-B, DM-UTC-B)
+
+Python 3 standard library only. Schedule 1 "Saffron" writes Chartreuse at
+priority 8: 75.0 from Monday 08:00, 20.0 otherwise, and 5.0 on every date in
+Calendar 1 "Cream" (December 25).
+
+1. **Control:** before any sync, `Local_Date` is the host's date.
+2. TimeSynchronization 2026-12-25 10:00 -> `Local_Date` 2026-12-25 and
+   `Local_Time` about 10:00; Cream TRUE; Saffron 5.0; Chartreuse 5.0 with
+   `Priority_Array[8]` 5.0.
+3. TimeSynchronization Monday 2026-10-19 09:00 -> Cream FALSE; Saffron and
+   Chartreuse 75.0.
+4. UTCTimeSynchronization Monday 2026-10-19 07:00 (`UTC_Offset` 0) ->
+   `Local_Time` about 07:00; Saffron and Chartreuse 20.0.
+
+Before 1.1.0's clock fix the device acknowledged both requests but kept the
+host's clock: 2 of 7 checks passed (the control and the last check, which the
+host's own time happened to satisfy).
 
 ## `sched_e_b_remote_peer.py` - SCHED-E-B: Schedule 1 writes a remote device
 

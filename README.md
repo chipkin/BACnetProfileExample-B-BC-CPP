@@ -21,9 +21,9 @@ only B-BC.
 - **[docs/PICS.md](docs/PICS.md)** - the Protocol Implementation Conformance
   Statement: every object, every property, and who answers it.
 
-> **Versions:** this document describes **example v1.1.0**, built and verified
-> against **CAS BACnet Stack 6.0.23** (`6.x` @ `64b2cfac5`), at
-> **Protocol_Revision 30**, with the vendored `common/` helper at **v3.4.0**.
+> **Versions:** this document describes **example v1.2.0**, built and verified
+> against **CAS BACnet Stack 6.0.23** (`6.x` @ `69b6249f`), at
+> **Protocol_Revision 30**, with the vendored `common/` helper at **v3.5.0**.
 > Running the example prints all three - if what it prints disagrees with this
 > line, trust the program and check `CHANGELOG.md`.
 
@@ -103,7 +103,8 @@ their commands; nothing is driven).
 ## The device this example creates
 
 ```
-Device 389005            "Chipkin Example B-BC"     (instance configurable with --deviceID)
+Device 389005            "Chipkin Example B-BC"     (instance configurable with --deviceID,
+                                                     Object_Name with --deviceName)
 Analog Input  1          "Bronze"      (REAL, degrees Celsius; read-only)
 Binary Input  1          "Emerald"     (active / inactive; read-only)
 Multi-state Input 1      "Hot Pink"    (state 1..3; read-only)
@@ -128,7 +129,7 @@ Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 |------|-------------|:---------:|
 | DS-RP-A | Data Sharing - ReadProperty - A | ✅ (polls the peer's Analog Input 1 - Wire Test `controller_test.py`) |
 | DS-RP-B | Data Sharing - ReadProperty - B | ✅ |
-| DS-RPM-A | Data Sharing - ReadPropertyMultiple - A | ✅ (`Present_Value` + `Status_Flags` of the peer's Analog Input 1 - Wire Test) |
+| DS-RPM-A | Data Sharing - ReadPropertyMultiple - A | ✅ (`Present_Value` + `Status_Flags` of the peer's Analog Input 1; falls back to ReadProperty when the peer rejects ReadPropertyMultiple as an unrecognized service - Wire Tests) |
 | DS-RPM-B | Data Sharing - ReadPropertyMultiple - B | ✅ |
 | DS-WP-A | Data Sharing - WriteProperty - A | ✅ (Schedule 1's remote write - the only WriteProperty it initiates; Wire Test) |
 | DS-WP-B | Data Sharing - WriteProperty - B | ✅ |
@@ -139,7 +140,7 @@ Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 | AE-CRL-B | Alarm and Event - Recipient List - B | ✅ |
 | SCHED-E-B | Scheduling - External - B | ✅ (local and remote writes: Wire Tests `sched_e_b_remote_peer.py` and `controller_test.py` - the latter with a peer that binds after start-up, stack #2343 fixed) |
 | T-VMT-I-B | Trending - Viewing and Modifying Trends - Internal - B | ✅ |
-| T-ATR-B | Trending - Automated Trend Retrieval - B | ✅ (via ReadRange on Trend Log Multiple) |
+| T-ATR-B | Trending - Automated Trend Retrieval - B | ✅ (Trend Log 1 reports BUFFER_READY every 30 new records through Notification Class 1; ReadRange retrieves them - Wire Test) |
 | DM-DDB-A | Device Management - Dynamic Device Binding - A | ✅ |
 | DM-DDB-B | Device Management - Dynamic Device Binding - B | ✅ |
 | DM-DOB-B | Device Management - Dynamic Object Binding - B | ✅ |
@@ -153,7 +154,7 @@ Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 | Service | Notes |
 |---------|-------|
 | ReadProperty / ReadPropertyMultiple | Responds to property reads (DS-RP-B / DS-RPM-B). |
-| ReadProperty / ReadPropertyMultiple (initiate) | Polls peer device 389002's Analog Input 1 once a second, alternating the two (DS-RP-A / DS-RPM-A). |
+| ReadProperty / ReadPropertyMultiple (initiate) | Polls peer device 389002's Analog Input 1 once a second, alternating the two (DS-RP-A / DS-RPM-A). A peer that rejects ReadPropertyMultiple (unrecognized-service) is polled with ReadProperty only. |
 | WriteProperty / WritePropertyMultiple | Accepts writes to commandable outputs and Crimson's `Recipient_List` (DS-WP-B / DS-WPM-B). |
 | WriteProperty (initiate) | Schedule 1 writes Chartreuse locally and a remote peer's Analog Output 1 (SCHED-E-B / DS-WP-A). |
 | Who-Is / I-Am | Answers Who-Is with I-Am; broadcasts I-Am at start-up and on restart; also initiates Who-Is at start-up (DM-DDB-A,B). |
@@ -275,9 +276,9 @@ CMake at it: `cmake -B build -S . -D CAS_STACK_DIR=/path/to/cas-bacnet-stack`.
 Expected output:
 
 ```
-BACnet B-BC (Building Controller) Example - C++ v1.1.0
+BACnet B-BC (Building Controller) Example - C++ v1.2.0
 CAS BACnet Stack version: 6.0.23.0
-Common helper (common/) version: 3.4.0
+Common helper (common/) version: 3.5.0
 FYI: Listening for BACnet/IP on UDP port 47808 (Network Port 1).
 TX 21 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1)
 FYI: Device 389005 ("Chipkin Example B-BC") ready. Vendor ID 389. Press 'h' for help.
@@ -303,6 +304,8 @@ firewall. To use a different port, pass `--port` (see below).
 |--------|---------|---------|
 | `--port <n>` | `47808` | UDP port to listen on (BACnet/IP). |
 | `--deviceID <n>` | `389005` | The device's BACnet instance number (BACnet requires this to be configurable). |
+| `--deviceName <text>` | `Chipkin Example B-BC` | The Device object's `Object_Name`, 1..255 bytes, no control characters. It must be unique across the BACnet internetwork, so give every unit its own (BACnet requires it to be configurable, like the instance). An invalid value prints a warning and keeps the default. |
+| `--xml` | off | Print every received and sent BACnet message as an indented XML block instead of a one-line summary (very verbose; for protocol debugging). |
 | `--help`, `-h` | - | Show usage and exit. |
 | `--version` | - | Print the example, stack, and `common/` helper versions, then exit. |
 
@@ -367,6 +370,28 @@ Python BACnet peers drive the running example over BACnet/IP from outside it:
   ReadProperty of every listed property; every read must return a value (the
   Trend Logs' `Log_Buffer` must instead be refused - it is ReadRange only).
   Python 3 standard library only.
+- `tests/configuration_test.py` - the Device's identity is configurable at
+  start-up: with `--deviceID` and `--deviceName`, Who-Is, ReadProperty
+  `Object_Name` and Who-Has by name all see the configured instance and name; a
+  WriteProperty of `Object_Name` is refused; an empty or 256-byte name keeps the
+  default with a warning, a 255-byte one is kept whole; `--help` lists exactly
+  the options the example reads. Python 3 standard library only.
+- `tests/time_sync_test.py` - TimeSynchronization and UTCTimeSynchronization set
+  the device clock: `Local_Date` / `Local_Time` follow, and with them Calendar 1
+  and Schedule 1 (DM-TS-B, DM-UTC-B). Python 3 standard library only.
+- `tests/trend_retrieval_test.py` - T-ATR-B: Trend Log 1 sends a BUFFER_READY
+  event notification (notify type EVENT, Notification Class 1) after 30 new
+  records, and `Last_Notify_Record` / `Records_Since_Notification` follow.
+  Python 3 standard library only.
+- `tests/trend_log_write_test.py` - which Trend Log properties a client can write:
+  `Enable`, `Record_Count` (0 clears the buffer) and `Log_Interval` are accepted
+  on Trend Log 1 and Trend Log Multiple 1; `Stop_When_Full`, `Buffer_Size` and
+  `Total_Record_Count` are refused (write-access-denied) and unchanged. Python 3
+  standard library only.
+- `tests/rpm_fallback_test.py` - DS-RPM-A: against a peer that rejects
+  ReadPropertyMultiple as an unrecognized service, the controller polls with
+  ReadProperty only and the reading stays reliable. Python 3 standard library
+  only.
 - `tests/controller_test.py` - **the Profile Function.** A Python peer
   (device 389002) has a humidity sensor; the test checks the controller reads
   it with ReadProperty and ReadPropertyMultiple, Diamond follows it, alarms on
@@ -383,7 +408,7 @@ Python BACnet peers drive the running example over BACnet/IP from outside it:
   and checks Cream -> Saffron -> Chartreuse, then restores it.
 
 The last two use bacpypes3 (`pip install -r tests/requirements.txt`).
-`tests/run_wire_tests.py` runs all five, starting a fresh device for each:
+`tests/run_wire_tests.py` runs all ten, starting a fresh device for each:
 
 ```bash
 python3 tests/run_wire_tests.py --exe build/BACnetExampleBBC          # Linux/macOS
