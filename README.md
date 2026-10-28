@@ -26,8 +26,8 @@ hub). Only one runs at a time - see [Data links](#data-links).
   Statement: every object, every property, and who answers it.
 
 > **Versions:** this document describes **example v1.2.0**, built and verified
-> against the **CAS BACnet Stack** at `b79d4b5bb` (`issues/runbook`, the
-> BACnet/IPv6 data link and Network Port), at
+> against the **CAS BACnet Stack** at `632165847` (`issues/runbook`, the
+> BACnet/IPv6 data link, Network Port and client broadcasts), at
 > **Protocol_Revision 30**, with the vendored `common/` helper at **v3.4.0**.
 > Running the example prints all three - if what it prints disagrees with this
 > line, trust the program and check `CHANGELOG.md`.
@@ -419,9 +419,7 @@ BACnetExampleBBC --datalink ipv6 --interface 12     # one interface (ipconfig: t
 Network Port 2 reports the interface's address (`IPv6_Address`, a global one
 when there is one), `IPv6_Prefix_Length`, `IPv6_Default_Gateway`,
 `IPv6_DNS_Server` and `BACnet_IPv6_UDP_Port`; broadcasts go to the multicast
-group FF02::BAC0. The device sends **no start-up I-Am or Who-Is** on this data
-link - the stack version it is built on cannot send an application broadcast
-on BACnet/IPv6 ([TODO.md](TODO.md)) - but it answers a Who-Is, by multicast.
+group FF02::BAC0 - the start-up I-Am and Who-Is too, as Original-Broadcast-NPDUs.
 [ipv6/README.md](ipv6/README.md) has the details and `tests/ipv6_probe.py`, a
 BACnet/IPv6 client in plain Python to check it from outside.
 

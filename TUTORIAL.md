@@ -190,12 +190,13 @@ is the same code. What changes per data link is in four places in `main.cpp`:
    255 (MS/TP), or the hub's URI (BACnet/SC: the hub sends it on to every
    node). `SendIAmBroadcast()` and `SendWhoIsBroadcast()` hold all four.
 
-On BACnet/IPv6 the example cannot start a broadcast at all at this stack
-version: the send functions need a connection string, and the IPv6 data link
-only broadcasts a message without one (TODO.md). So there it sends no start-up
-I-Am or Who-Is - it only answers Who-Is, which the stack multicasts.
+On BACnet/IPv6 the send functions still want a connection string with
+`broadcast` true; the example passes the multicast group, [FF02::BAC0] on its
+UDP port. The stack sends an Original-Broadcast-NPDU and hands it to the send
+callback with `broadcast` true and no connection string, and the callback
+multicasts it.
 
-Timing differs too. On BACnet/IP the start-up I-Am goes out at once. An MS/TP station may only send while it holds the token, so the
+Timing differs too. On BACnet/IP and BACnet/IPv6 the start-up I-Am goes out at once. An MS/TP station may only send while it holds the token, so the
 example waits until it has joined the token ring; a BACnet/SC node has
 nowhere to send until the hub has accepted it, so the example waits for that.
 

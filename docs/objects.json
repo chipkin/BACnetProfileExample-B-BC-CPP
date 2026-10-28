@@ -132,7 +132,7 @@
       "enabled": ["Link_Speed"],
       "writable": [],
       "accepted": ["Reliability"],
-      "note": "--datalink ipv6 only. BACnet/IPv6 (Network_Type ipv6, 9). IPv6_Address, IPv6_Prefix_Length and IPv6_Default_Gateway are the host interface's (ipv6/LocalIPv6Address.cpp: a global address when the interface has one, else its link-local one), read once at start-up; BACnet_IPv6_UDP_Port is --port. IPv6_DNS_Server is the host's first IPv6 DNS server, one element (the interface's on Windows, /etc/resolv.conf's on POSIX); with none the app declines it and the stack reports one unconfigured entry. The stack serves MAC_Address (the 3-octet VMAC, the device instance) and the multicast address. Link_Speed (optional on this port, so enabled at start-up) as for Network Port 1. No start-up I-Am / Who-Is on this data link (TODO.md: the stack cannot send an application broadcast on BACnet/IPv6). Checked with tests/ipv6_probe.py"
+      "note": "--datalink ipv6 only. BACnet/IPv6 (Network_Type ipv6, 9). IPv6_Address, IPv6_Prefix_Length and IPv6_Default_Gateway are the host interface's (ipv6/LocalIPv6Address.cpp: a global address when the interface has one, else its link-local one), read once at start-up; BACnet_IPv6_UDP_Port is --port. IPv6_DNS_Server is the host's first IPv6 DNS server, one element (the interface's on Windows, /etc/resolv.conf's on POSIX); with none the app declines it and the stack reports one unconfigured entry. The stack serves MAC_Address (the 3-octet VMAC, the device instance) and the multicast address. Link_Speed (optional on this port, so enabled at start-up) as for Network Port 1. Checked with tests/ipv6_probe.py"
     },
     {
       "type": "Network Port",

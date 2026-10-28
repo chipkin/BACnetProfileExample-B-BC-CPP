@@ -101,8 +101,7 @@ life-safety BIBB.
 | ReadRange | no | **yes** (against `Log_Buffer` of either Trend Log) |
 
 An unsolicited I-Am is broadcast on the active data link at start-up and after a
-ReinitializeDevice restart, as well as in response to Who-Is (on `--datalink ipv6`
-only in response to Who-Is: see TODO.md). This device also
+ReinitializeDevice restart, as well as in response to Who-Is. This device also
 initiates a Who-Is at start-up (DM-DDB-A), initiates WriteProperty when
 Schedule 1 ("Saffron") fires a transition, targeting both a local object and a
 remote peer device's object (SCHED-E-B), and initiates ReadProperty and
@@ -362,7 +361,7 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Changes_Pending | Boolean | app | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
-### Network Port 2 "Cerulean" - --datalink ipv6 only. BACnet/IPv6 (Network_Type ipv6, 9). IPv6_Address, IPv6_Prefix_Length and IPv6_Default_Gateway are the host interface's (ipv6/LocalIPv6Address.cpp: a global address when the interface has one, else its link-local one), read once at start-up; BACnet_IPv6_UDP_Port is --port. IPv6_DNS_Server is the host's first IPv6 DNS server, one element (the interface's on Windows, /etc/resolv.conf's on POSIX); with none the app declines it and the stack reports one unconfigured entry. The stack serves MAC_Address (the 3-octet VMAC, the device instance) and the multicast address. Link_Speed (optional on this port, so enabled at start-up) as for Network Port 1. No start-up I-Am / Who-Is on this data link (TODO.md: the stack cannot send an application broadcast on BACnet/IPv6). Checked with tests/ipv6_probe.py
+### Network Port 2 "Cerulean" - --datalink ipv6 only. BACnet/IPv6 (Network_Type ipv6, 9). IPv6_Address, IPv6_Prefix_Length and IPv6_Default_Gateway are the host interface's (ipv6/LocalIPv6Address.cpp: a global address when the interface has one, else its link-local one), read once at start-up; BACnet_IPv6_UDP_Port is --port. IPv6_DNS_Server is the host's first IPv6 DNS server, one element (the interface's on Windows, /etc/resolv.conf's on POSIX); with none the app declines it and the stack reports one unconfigured entry. The stack serves MAC_Address (the 3-octet VMAC, the device instance) and the multicast address. Link_Speed (optional on this port, so enabled at start-up) as for Network Port 1. Checked with tests/ipv6_probe.py
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|

@@ -2545,17 +2545,17 @@ uint16_t CallbackSendMessage(const uint8_t* message, const uint16_t messageLengt
     }
 }
 
-// BACnet/IPv6: this stack version gives the application no way to START a
-// broadcast. On BACnet/IPv6 a broadcast is a message with no connection string
-// (the host sends it to the multicast group FF02::BAC0), but BACnetStack_SendIAm
-// and BACnetStack_SendWhoIs refuse a call without one, and with one the IPv6
-// data link sends a unicast. So on --datalink ipv6 this example does not
-// announce itself; it still ANSWERS a Who-Is, and the stack multicasts that
-// I-Am. Recorded in TODO.md (stack gaps).
-static void Ipv6BroadcastNotAvailable(const char* serviceName) {
-    printf("FYI: BACnet/IPv6: no start-up %s broadcast (this stack version cannot send an application "
-           "broadcast on BACnet/IPv6 - see TODO.md). The device still answers Who-Is.\n",
-           serviceName);
+// BACnet/IPv6: the send functions need an 18-octet connection string even for a
+// broadcast, so this passes the multicast group FF02::BAC0 on our UDP port. With
+// broadcast=true the stack sends an Original-Broadcast-NPDU and hands it to the
+// send callback with broadcast=true and NO connection string; SendToUdp6()
+// multicasts it to FF02::BAC0.
+static void Ipv6MulticastConnectionString(uint8_t connectionString[18]) {
+    static const uint8_t BACNET_IPV6_MULTICAST_GROUP[16] = { 0xFF, 0x02, 0, 0, 0, 0, 0, 0,
+                                                             0, 0, 0, 0, 0, 0, 0xBA, 0xC0 };
+    memcpy(connectionString, BACNET_IPV6_MULTICAST_GROUP, 16);
+    connectionString[16] = (uint8_t)(g_options.udpPort >> 8);
+    connectionString[17] = (uint8_t)(g_options.udpPort & 0xFF);
 }
 
 // The start-up / restart I-Am, as a broadcast on the active data link. What
@@ -2571,10 +2571,13 @@ static void SendIAmBroadcast() {
                                 NETWORK_PORT_INSTANCE, true /*broadcast*/, 0 /*local network*/, NULL, 0);
             break;
         }
-        case DataLink::IPv6:
-            // Not sent: see Ipv6BroadcastNotAvailable() below.
-            Ipv6BroadcastNotAvailable("I-Am");
+        case DataLink::IPv6: {
+            uint8_t multicastConnectionString[18];
+            Ipv6MulticastConnectionString(multicastConnectionString);
+            BACnetStack_SendIAm(g_deviceInstance, multicastConnectionString, sizeof(multicastConnectionString),
+                                IPV6_NETWORK_PORT_INSTANCE, true /*broadcast*/, 0 /*local network*/, NULL, 0);
             break;
+        }
         case DataLink::MSTP:
             BACnetStack_SendIAm(g_deviceInstance, &MSTP_BROADCAST_MAC_ADDRESS, 1, MSTP_NETWORK_PORT_INSTANCE,
                                 true /*broadcast*/, 0 /*local network*/, NULL, 0);
@@ -2607,9 +2610,13 @@ static void SendWhoIsBroadcast() {
                                   true /*broadcast*/, 0, NULL, 0);
             break;
         }
-        case DataLink::IPv6:
-            Ipv6BroadcastNotAvailable("Who-Is");
+        case DataLink::IPv6: {
+            uint8_t multicastConnectionString[18];
+            Ipv6MulticastConnectionString(multicastConnectionString);
+            BACnetStack_SendWhoIs(multicastConnectionString, sizeof(multicastConnectionString),
+                                  IPV6_NETWORK_PORT_INSTANCE, true /*broadcast*/, 0, NULL, 0);
             break;
+        }
         case DataLink::MSTP:
             BACnetStack_SendWhoIs(&MSTP_BROADCAST_MAC_ADDRESS, 1, MSTP_NETWORK_PORT_INSTANCE, true /*broadcast*/,
                                   GLOBAL_BROADCAST_NETWORK, NULL, 0);

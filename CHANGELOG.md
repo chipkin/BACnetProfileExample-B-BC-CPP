@@ -24,8 +24,8 @@ The default, `ipv4`, is the same device as 1.1.0.
   and Link_Speed from the host (`ipv6/LocalIPv6Address.cpp`) and
   BACnet_IPv6_UDP_Port from `--port`; the stack serves the VMAC MAC_Address.
   `tests/ipv6_probe.py` reads Network Port 2 too (Network_Type 9, MAC_Address =
-  the VMAC). No start-up I-Am / Who-Is on this data link: the stack cannot send
-  an application broadcast on BACnet/IPv6 (TODO.md); the device answers Who-Is.
+  the VMAC). The start-up I-Am and Who-Is go to FF02::BAC0 as
+  Original-Broadcast-NPDUs (stack `632165847`, cas-bacnet-stack #4636).
 - **MS/TP** (`--datalink mstp`, `--mstp-port`, `--mstp-baud` 9600..115200
   including 76800, `--mstp-mac`, `--mstp-max-master`, `--mstp-max-info-frames`).
   The stack runs the MS/TP state machines in byte mode; `mstp/MstpDataLink.cpp`

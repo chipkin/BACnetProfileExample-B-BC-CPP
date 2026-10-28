@@ -1,7 +1,7 @@
 # TODO - known gaps (each checked against the pinned stack source and/or the wire, not assumed)
 
-Stack pin: `b79d4b5bb` (`issues/runbook`, 2026-10-28, reports 6.0.23) since 1.2.0, for the
-BACnet/IPv6 data link. Before it: `64b2cfac5` (`6.x`, 2026-10-15), re-checked 2026-10-15 when
+Stack pin: `632165847` (`issues/runbook`, 2026-10-28, reports 6.0.23) since 1.2.0, for the
+BACnet/IPv6 data link and its client broadcasts (#4636); briefly `b79d4b5bb`. Before it: `64b2cfac5` (`6.x`, 2026-10-15), re-checked 2026-10-15 when
 the pin moved from `00aa2d0e` (`issues/runbook`, 6.0.22).
 
 This example is **Profile-functional** (series `docs/GLOSSARY.md`) since 1.1.0: the Wire
@@ -14,14 +14,6 @@ own scope (bottom of this file).
 
 ### Stack gaps found while adding them (not filed - recorded here)
 
-- **No application broadcast on BACnet/IPv6.** On BACnet/IPv6 a broadcast is a message with
-  no connection string (the host sends it to the multicast group FF02::BAC0), but
-  `BACnetStack_SendIAm` and `BACnetStack_SendWhoIs` refuse a call without one ("ConnectionString
-  does not exist"), and with one the IPv6 data link sends a unicast: it decides "broadcast"
-  from the connection string, not from the call's `broadcast` argument. So on `--datalink ipv6`
-  this example sends no start-up I-Am or Who-Is (it prints an FYI instead). It still answers
-  a Who-Is, and the stack multicasts that I-Am. Seen on the console at `b79d4b5bb`; the
-  pre-1.2.0 `BBC_IPV6` build made the same NULL call.
 - **No way to see a reply's value on MS/TP or BACnet/SC.** Section 2e reads the peer by
   decoding the ReadProperty-ACK in the receive callback, because the stack has no hook that
   hands the application a confirmed-service ACK. On BACnet/IP and BACnet/IPv6 the whole
@@ -34,6 +26,7 @@ own scope (bottom of this file).
   data link compiled in (the default full build), the default port instance does not name
   the MS/TP port; this example always names its Network Port instance explicitly.
 - **`docs/property-profile-reference.md` is no longer in the stack checkout** at `b79d4b5bb`
+  or `632165847`
   (it became generated output). The series' `tools/gen-objects-properties.py` reads it from
   the submodule, so `docs/PICS.md` was regenerated against the copy at `64b2cfac5` (the
   previous pin, in the B-SCHUB example's submodule). The generic Network Port and File rows
@@ -47,7 +40,18 @@ own scope (bottom of this file).
   16-octet IPv6_Address, and the multicast Address-Resolution. By hand: IPv6_Prefix_Length 64,
   IPv6_Default_Gateway, IPv6_DNS_Server (the host's, as `ipconfig /all` lists it),
   BACnet_IPv6_Multicast_Address FF02::BAC0 port 47808, APDU_Length 1476, Device
-  Max_APDU_Length_Accepted 1476.
+  Max_APDU_Length_Accepted 1476. At `632165847`, a capture on the Ethernet interface (tshark)
+  showed the start-up I-Am and Who-Is leave as Original-Broadcast-NPDUs (BVLC 82 02, source
+  VMAC 05EF8D) to [FF02::BAC0]:47808.
+
+### Resolved during 1.2.0
+
+- **No application broadcast on BACnet/IPv6** (found at `b79d4b5bb`): `BACnetStack_SendIAm` /
+  `SendWhoIs` refused a call with no connection string, and with one the IPv6 data link sent a
+  unicast, so the example could not announce itself on `--datalink ipv6`. Fixed by
+  cas-bacnet-stack #4636 (`632165847`): with `broadcast` true and any 18-octet connection
+  string the message goes out as an Original-Broadcast-NPDU, handed to the host with no
+  connection string.
 - `sc`: against the B-SCHUB example's hub on this PC (`wss://127.0.0.1:4443/`). First start
   made `certs/node-cari-request.zip`; `tools/sign_cari_request.py` signed it with B-SCHUB's
   demo CA; `--import-cari` installed it; the device connected and sent I-Am / Who-Is. Read

@@ -35,13 +35,13 @@ FF02::BAC0 is answered.
 - A peer is 18 octets: the 16-octet IPv6 address, then the UDP port, most significant octet first.
 - A BACnet broadcast reaches the host's send callback with **no** connection string and the broadcast flag set; send it to
   FF02::BAC0 (`SimpleUDP6::SendMulticast`).
+- To START a broadcast (the start-up I-Am and Who-Is), call `BACnetStack_SendIAm` / `BACnetStack_SendWhoIs` with
+  `broadcast` true and an 18-octet connection string - this example passes [FF02::BAC0] on its UDP port. The stack sends
+  an Original-Broadcast-NPDU and hands it over as above: broadcast flag set, no connection string.
 - The device's VMAC is its device instance in three octets.
 
-## Not yet
+## BBMD and foreign devices
 
-The device sends no start-up I-Am or Who-Is on BACnet/IPv6: at the pinned stack, `BACnetStack_SendIAm` and
-`BACnetStack_SendWhoIs` need a connection string, and the IPv6 data link only broadcasts a message that has none
-([TODO.md](../TODO.md)). It answers a Who-Is, and that I-Am goes to FF02::BAC0.
-
-BBMD and foreign-device registration (cas-bacnet-stack#4612) are not in the stack at the pinned commit; this example
-reaches devices on its own link only.
+The pinned stack (`632165847`, cas-bacnet-stack #4612) supports a BACnet/IPv6 BBMD and foreign-device registration,
+configured through the IPv6 Network Port's properties. This example does not configure either, so it reaches devices
+on its own link only.
