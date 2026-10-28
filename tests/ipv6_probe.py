@@ -19,6 +19,8 @@ Checks:
     (DS-RP-B over Original-Unicast-NPDU);
   - ReadPropertyMultiple of Device Object_Identifier and Object_Type;
   - WriteProperty of Analog Output 1 at priority 8, read back, then relinquished;
+  - the IPv6 Network Port (Network Port 2, "Cerulean"): Network_Type is ipv6 (9), MAC_Address is the
+    device's 3-octet VMAC, BACnet_IPv6_UDP_Port is --port, and IPv6_Address is 16 octets;
   - (--multicast) Address-Resolution to FF02::BAC0 is answered with an Address-Resolution-ACK.
 """
 import argparse
@@ -39,11 +41,18 @@ VIRTUAL_ADDRESS_RESOLUTION_ACK = 0x07
 OBJECT_ANALOG_INPUT = 0
 OBJECT_ANALOG_OUTPUT = 1
 OBJECT_DEVICE = 8
+OBJECT_NETWORK_PORT = 56
 PROPERTY_OBJECT_IDENTIFIER = 75
 PROPERTY_OBJECT_NAME = 77
 PROPERTY_OBJECT_TYPE = 79
 PROPERTY_PRESENT_VALUE = 85
 PROPERTY_PROTOCOL_REVISION = 139
+PROPERTY_MAC_ADDRESS = 423
+PROPERTY_NETWORK_TYPE = 427
+PROPERTY_IPV6_ADDRESS = 436
+PROPERTY_BACNET_IPV6_UDP_PORT = 438
+NETWORK_TYPE_IPV6 = 9
+IPV6_NETWORK_PORT_INSTANCE = 2                     # the B-BC example's --datalink ipv6 port, "Cerulean"
 
 
 def vmac_of(device_instance):
@@ -105,8 +114,10 @@ def first_application_value(apdu):
     value = apdu[index:index + length]
     if kind == 7:                                   # character string: encoding octet then text
         return value[1:].decode("utf-8", "replace")
-    if kind == 2:                                   # unsigned
+    if kind == 2 or kind == 9:                      # unsigned, enumerated
         return int.from_bytes(value, "big")
+    if kind == 6:                                   # octet string
+        return bytes(value)
     if kind == 4 and len(value) == 4:               # real
         return round(struct.unpack(">f", value)[0], 3)
     if kind == 12 and len(value) == 4:              # object identifier
@@ -217,7 +228,25 @@ def main():
     answer = node.confirmed(7, write_property_null_apdu(7, OBJECT_ANALOG_OUTPUT, 1, PROPERTY_PRESENT_VALUE, 8))
     check("WriteProperty NULL at priority 8 relinquishes it (SimpleACK)", answer is not None and (answer[0] >> 4) == 2, answer.hex() if answer else "no answer")
 
-    # 4. Multicast: an Address-Resolution to FF02::BAC0 for the device's VMAC; the ACK comes back by unicast.
+    # 4. The IPv6 Network Port.
+    def read_port(invoke_id, property_identifier):
+        answer = node.confirmed(invoke_id, read_property_apdu(invoke_id, OBJECT_NETWORK_PORT, IPV6_NETWORK_PORT_INSTANCE,
+                                                              property_identifier))
+        return first_application_value(answer[2:]) if answer and (answer[0] >> 4) == 3 else None
+    value = read_port(8, PROPERTY_OBJECT_NAME)
+    check(f"ReadProperty Network Port {IPV6_NETWORK_PORT_INSTANCE} Object_Name", isinstance(value, str) and value != "", repr(value))
+    value = read_port(9, PROPERTY_NETWORK_TYPE)
+    check(f"ReadProperty Network Port {IPV6_NETWORK_PORT_INSTANCE} Network_Type is ipv6 ({NETWORK_TYPE_IPV6})", value == NETWORK_TYPE_IPV6, repr(value))
+    value = read_port(10, PROPERTY_MAC_ADDRESS)
+    check(f"ReadProperty Network Port {IPV6_NETWORK_PORT_INSTANCE} MAC_Address is the VMAC {expected_vmac.hex()}", value == expected_vmac,
+          value.hex() if isinstance(value, bytes) else repr(value))
+    value = read_port(11, PROPERTY_BACNET_IPV6_UDP_PORT)
+    check(f"ReadProperty Network Port {IPV6_NETWORK_PORT_INSTANCE} BACnet_IPv6_UDP_Port is {args.port}", value == args.port, repr(value))
+    value = read_port(12, PROPERTY_IPV6_ADDRESS)
+    check(f"ReadProperty Network Port {IPV6_NETWORK_PORT_INSTANCE} IPv6_Address is 16 octets", isinstance(value, bytes) and len(value) == 16,
+          socket.inet_ntop(socket.AF_INET6, value) if isinstance(value, bytes) and len(value) == 16 else repr(value))
+
+    # 5. Multicast: an Address-Resolution to FF02::BAC0 for the device's VMAC; the ACK comes back by unicast.
     if args.multicast:
         node.send(bvll(ADDRESS_RESOLUTION, b"", node.own_vmac, expected_vmac), node.multicast_destination())
         acknowledged = False

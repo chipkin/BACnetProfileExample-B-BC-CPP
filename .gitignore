@@ -4,3 +4,9 @@ build/
 # Python bytecode from tests/ and wiretest/
 __pycache__/
 build-*/
+
+# --datalink sc: the device's certificates and private key (--sc-cert-dir,
+# default ./certs) and the CARI request/response zips. Never commit them.
+certs/
+*-cari-request.zip
+*-cari-response.zip
