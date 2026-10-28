@@ -1,0 +1,330 @@
+{
+  "bibbs": [
+    {
+      "enabled": true,
+      "id": "DS-RP-A",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DS-RP-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DS-RPM-A",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DS-RPM-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DS-WP-A",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DS-WP-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DS-WPM-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "AE-N-I-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "AE-ACK-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "AE-INFO-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "AE-CRL-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "SCHED-E-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "T-VMT-I-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "T-ATR-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DM-DDB-A",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DM-DDB-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DM-DOB-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DM-DCC-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DM-TS-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DM-UTC-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DM-RD-B",
+      "provenance": "user-entered"
+    },
+    {
+      "enabled": true,
+      "id": "DM-BR-B",
+      "provenance": "user-entered"
+    }
+  ],
+  "epicsHeader": {
+    "characterSetsSupported": {
+      "provenance": "derived",
+      "value": "ISO 10646 (UTF-8) / ANSI X3.4"
+    },
+    "dataLinkOptions": {
+      "provenance": "derived",
+      "value": "BACnet IP, (Annex J)"
+    },
+    "deviceProfile": {
+      "provenance": "user-entered",
+      "value": "B-BC - BACnet Building Controller"
+    },
+    "productDescription": {
+      "provenance": "user-entered",
+      "value": "A BACnet/IP Building Controller built on the CAS BACnet Stack. It reads a humidity sensor in a peer device (ReadProperty and ReadPropertyMultiple), alarms on and trends that reading, and reports communication loss with the peer through Reliability. It presents fifteen objects spanning read-only sensors, commandable outputs, an intrinsic-alarming Analog Value with a writable event-recipient list, a Schedule that writes both a local and a remote object, Backup and Restore, and a Trend Log / Trend Log Multiple pair retrievable by ReadRange. It is a tutorial for implementers of the B-BC profile."
+    },
+    "productName": {
+      "provenance": "user-entered",
+      "value": "CAS BACnet Stack Example - B-BC"
+    },
+    "specialFunctionality": {
+      "provenance": "derived",
+      "value": "none"
+    }
+  },
+  "identityMutations": [
+    {
+      "included": true,
+      "notes": "The Device object is the only object whose identity can change, and only by start-up configuration: restart the example with --deviceID <n> or --deviceName <text>. A WriteProperty to the Device's Object_Name or Object_Identifier is refused (write-access-denied), so nothing changes over the network.",
+      "objectIdentifier": {
+        "instance": 389005,
+        "type": "device"
+      },
+      "provenance": "user-entered",
+      "safeAlternateObjectIdentifier": {
+        "instance": 389905,
+        "type": "device"
+      },
+      "safeAlternateObjectName": "Chipkin Example B-BC Alt"
+    }
+  ],
+  "infra": {
+    "failTimes": {
+      "provenance": "derived",
+      "value": [
+        [
+          "Notification Fail Time",
+          60
+        ],
+        [
+          "Internal Processing Fail Time",
+          2
+        ],
+        [
+          "Minimum ON/OFF Time",
+          2
+        ],
+        [
+          "Schedule Evaluation Fail Time",
+          2
+        ],
+        [
+          "External Command Fail Time",
+          5
+        ],
+        [
+          "Program Object State Change Fail Time",
+          5
+        ],
+        [
+          "Acknowledgement Fail Time",
+          2
+        ],
+        [
+          "Slave Proxy Confirm Interval",
+          6
+        ],
+        [
+          "Unconfirmed Response Fail Time",
+          4
+        ],
+        [
+          "Activate Changes Fail Time",
+          30
+        ],
+        [
+          "Auto Negotiation Fail Time",
+          15
+        ],
+        [
+          "Foreign Device Registration Fail Time",
+          10
+        ],
+        [
+          "Channel Write Fail Time",
+          30
+        ]
+      ]
+    },
+    "networkPortInstance": {
+      "provenance": "captured",
+      "value": 1
+    },
+    "rebootWindow": {
+      "provenance": "derived",
+      "value": {
+        "activateChangesMs": 30000,
+        "coldstartMs": 60000,
+        "warmstartMs": 30000
+      }
+    },
+    "timeouts": {
+      "provenance": "derived",
+      "value": {
+        "apdu": 3000,
+        "reply": 1000,
+        "segment": 1000
+      }
+    },
+    "valueRestrictions": {
+      "provenance": "derived",
+      "value": [
+        {
+          "datatype": "unsigned-integer",
+          "kind": "range",
+          "max": 65535,
+          "min": 0
+        },
+        {
+          "datatype": "signed-integer",
+          "kind": "range",
+          "max": 2147483647,
+          "min": -2147483648
+        },
+        {
+          "datatype": "real",
+          "kind": "range",
+          "max": 3.4e+38,
+          "min": -3.4e+38,
+          "resolution": 0.01
+        },
+        {
+          "datatype": "character-string",
+          "kind": "length",
+          "max": 64
+        },
+        {
+          "datatype": "octet-string",
+          "kind": "length",
+          "max": 256
+        },
+        {
+          "datatype": "list",
+          "kind": "length",
+          "max": 10
+        }
+      ]
+    }
+  },
+  "snapshotCapturedAt": "2026-10-24T12:04:21.856Z",
+  "testPoints": [
+    {
+      "included": true,
+      "kind": "commandable",
+      "objectIdentifier": {
+        "instance": 1,
+        "type": "analogOutput"
+      },
+      "propertyIdentifier": "presentValue",
+      "provenance": "user-entered",
+      "suggestedTestValue": 24,
+      "writePriority": 7
+    },
+    {
+      "included": true,
+      "kind": "commandable",
+      "objectIdentifier": {
+        "instance": 1,
+        "type": "binaryOutput"
+      },
+      "propertyIdentifier": "presentValue",
+      "provenance": "user-entered",
+      "suggestedTestValue": 1,
+      "writePriority": 16
+    },
+    {
+      "included": true,
+      "kind": "commandable",
+      "objectIdentifier": {
+        "instance": 1,
+        "type": "multiStateOutput"
+      },
+      "propertyIdentifier": "presentValue",
+      "provenance": "user-entered",
+      "suggestedTestValue": 2,
+      "writePriority": 16
+    },
+    {
+      "included": true,
+      "kind": "writable",
+      "objectIdentifier": {
+        "instance": 1,
+        "type": "file"
+      },
+      "propertyIdentifier": "archive",
+      "provenance": "user-entered",
+      "suggestedTestValue": true
+    }
+  ],
+  "updatedAt": "2026-10-24T12:04:58.859Z",
+  "writableProperties": [
+    "calendar.dateList",
+    "file.archive",
+    "notificationClass.recipientList"
+  ]
+}

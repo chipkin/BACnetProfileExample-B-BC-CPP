@@ -66,8 +66,8 @@ able to build it with the two commands above.
 ## Run
 
 ```bash
-./build/BACnetExampleBBC [--port 47808] [--deviceID 389005]   # Linux/macOS
-.\build\Release\BACnetExampleBBC.exe [--port 47808] [--deviceID 389005]   # Windows
+./build/BACnetExampleBBC [--port 47808] [--deviceID 389005] [--deviceName "Chipkin Example B-BC"]   # Linux/macOS
+.\build\Release\BACnetExampleBBC.exe [--port 47808] [--deviceID 389005] [--deviceName "Chipkin Example B-BC"]   # Windows
 ```
 
 Interactive keys while running: `h` help, `q` quit, up/down nudge Analog

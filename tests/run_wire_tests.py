@@ -3,12 +3,16 @@
 # Public-domain example code (CC0) - see ../LICENSE.
 """Run every B-BC Wire Test, one after another, and report one result.
 
-    python3 tests/run_wire_tests.py [--exe build/BACnetExampleBBC] [--port 47864]
+    python3 tests/run_wire_tests.py [--exe build/BACnetExampleBBC] [--port 47838]
 
 Two kinds of script:
 
   discovery_test.py               each starts the building controller itself (wiretest harness,
-  controller_test.py              Python 3 standard library only). The last two play the Peer
+  configuration_test.py           Python 3 standard library only). The last two play the Peer
+  controller_test.py
+  time_sync_test.py
+  trend_retrieval_test.py
+  rpm_fallback_test.py
   failure_mode_test.py            device 389002 on an ephemeral UDP port (bc_setup.HumidityPeer).
   sched_e_b_remote_peer.py        written against bacpypes3 (pip install -r tests/requirements.txt);
   calendar_reference_check.py     each expects a running device. This runner starts a fresh one
@@ -28,7 +32,8 @@ sys.path.insert(0, str(REPOSITORY))
 
 import wiretest  # noqa: E402  (the vendored harness at the repository root)
 
-SCRIPTS = ["discovery_test.py", "controller_test.py", "failure_mode_test.py"]
+SCRIPTS = ["discovery_test.py", "configuration_test.py", "controller_test.py", "failure_mode_test.py",
+           "time_sync_test.py", "trend_retrieval_test.py", "trend_log_write_test.py", "rpm_fallback_test.py"]
 # bacpypes3 scripts, run against a device this runner starts. Each plays its Peer on its own
 # fixed UDP port (sched_e_b_remote_peer.py: 47902 as device 389002; calendar_reference_check.py:
 # 47903), so --port must not be one of those.
@@ -55,7 +60,7 @@ def main():
     arguments = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     arguments.add_argument("--exe", default=str(wiretest.default_exe(REPOSITORY, "BACnetExampleBBC")),
                            help="path to BACnetExampleBBC (default: build/BACnetExampleBBC)")
-    arguments.add_argument("--port", type=int, default=47864, help="the building controller's UDP port (default 47864)")
+    arguments.add_argument("--port", type=int, default=47838, help="the building controller's UDP port (default 47838)")
     args = arguments.parse_args()
 
     outcomes = []

@@ -31,14 +31,13 @@ per-field note on each saying what to change it to. That block is the
 authoritative checklist; it is in the source rather than here so it cannot be
 skipped by someone who only reads the code.
 
-**THIS IS THE ONE THAT WILL BITE YOU.** `DEVICE_NAME` ("Chipkin Example B-BC") is a
-**compile-time constant**, but `Object_Name` must be unique across the whole
-BACnet internetwork. The device instance is runtime-configurable with
-`--deviceID`, so it is easy to ship two units, configure their instances
-correctly, and still have both announce `Object_Name` `"Chipkin Example B-BC"` - a spec
-violation and a hard BTL failure. In a real product `Object_Name` must be
-per-unit configurable too: derive it from a serial number, DIP switches, a
-config file, or add a `--deviceName` argument.
+**THIS IS THE ONE THAT WILL BITE YOU.** `Object_Name` must be unique across the
+whole BACnet internetwork. `DEVICE_NAME` ("Chipkin Example B-BC") is only the
+default: each unit takes its own with `--deviceName` at start-up, as it takes
+its instance with `--deviceID`. Two units left at the default would both
+announce `"Chipkin Example B-BC"` - a spec violation. A real product configures
+the name per unit (a serial number, DIP switches, a config file, or this
+argument).
 
 ### Adding an object: read this before you copy any pattern in this file
 

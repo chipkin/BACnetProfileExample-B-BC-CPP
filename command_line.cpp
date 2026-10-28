@@ -39,6 +39,8 @@ void PrintUsage(const char* appName, const char* appVersion) {
     printf("  --version               Show version information and exit.\n");
     printf("  --datalink <name>       ipv4 (default), ipv6, mstp or sc.\n");
     printf("  --deviceID <n>          Device instance, 0..4194302. Default 389005.\n");
+    printf("  --deviceName <text>     Device Object_Name, 1..255 bytes, no control characters.\n");
+    printf("                          Default \"Chipkin Example B-BC\".\n");
     printf("  --xml                   Print every received/sent message as XML (very verbose).\n");
     printf("\n");
     printf("BACnet/IP (--datalink ipv4) and BACnet/IPv6 (--datalink ipv6):\n");
@@ -124,7 +126,8 @@ const DataLinkOption DATA_LINK_OPTIONS[] = {
 // Is `option` one this example takes (each with a value; --xml is handled
 // before this is asked)?
 bool IsKnownOption(const char* option) {
-    if (strcmp(option, "--datalink") == 0 || strcmp(option, "--deviceID") == 0 || strcmp(option, "--port") == 0) {
+    if (strcmp(option, "--datalink") == 0 || strcmp(option, "--deviceID") == 0 || strcmp(option, "--deviceName") == 0 ||
+        strcmp(option, "--port") == 0) {
         return true;
     }
     for (const DataLinkOption& dataLinkOption : DATA_LINK_OPTIONS) {
@@ -218,6 +221,9 @@ ParseResult ParseCommandLine(const int argc, char** argv, const char* appName, c
                 return Fail("--deviceID \"%s\" is not a device instance (0..4194302)%s", value);
             }
             options->deviceInstance = (uint32_t)number;
+        } else if (strcmp(option, "--deviceName") == 0) {
+            // Checked by CASExampleHelper::ParseDeviceNameArg in main(): a bad name
+            // warns and keeps the default rather than stopping the device (1.2.0).
         } else if (strcmp(option, "--port") == 0) {
             if (!ParseNumber(value, 1, 65535, &number)) {
                 return Fail("--port \"%s\" is not a UDP port (1..65535)%s", value);

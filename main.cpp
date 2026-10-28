@@ -44,7 +44,8 @@
 // a Trend Log and a Trend Log Multiple. Each object has a colour name (the
 // convention shared across this example series):
 //
-//     Device 389005            "Chipkin Example B-BC"     (instance configurable with --deviceID)
+//     Device 389005            "Chipkin Example B-BC"     (instance configurable with --deviceID,
+//                                                          Object_Name with --deviceName)
 //     Analog Input  1          "Bronze"      (REAL, degrees Celsius; read-only)
 //     Binary Input  1          "Emerald"     (active / inactive; read-only)
 //     Multi-State Input 1      "Hot Pink"    (state 1..3; read-only)
@@ -96,9 +97,9 @@
 // up/down = nudge Analog Input 1 by +/-1.1, s = advance Schedule 1 ("Saffron")
 // with a Weekly_Schedule transition for right now. To fire an alarm, drive the
 // peer's Analog Input 1 above 90 or below 10; m = MS/TP counters (--datalink
-// mstp). Command line: --datalink ipv4|ipv6|mstp|sc, --port <n>, --deviceID <n>
-// and each data link's own options - run with --help for the list
-// (command_line.cpp).
+// mstp). Command line: --datalink ipv4|ipv6|mstp|sc, --port <n>, --deviceID <n>,
+// --deviceName <text> and each data link's own options - run with --help for
+// the list (command_line.cpp).
 //
 // Most of the plumbing (keyboard, frame logging, time) lives in
 // common/CASExampleHelper so this file can stay focused on the BACnet logic. The
@@ -140,7 +141,7 @@ using namespace CASBACnetStackExampleConstants;
 // 1. Example + device configuration
 // -----------------------------------------------------------------------------
 static const char* APP_NAME = "BACnet B-BC (Building Controller) Example - C++";
-static const char* APP_VERSION = "1.2.0";
+static const char* APP_VERSION = "1.3.0";
 
 // The device instance. BACnet requires this to be configurable, so it defaults
 // to 389005 and can be overridden on the command line with --deviceID. Keep it
@@ -164,16 +165,20 @@ static uint32_t g_deviceInstance = 389005;
 // Update VENDOR_NAME below to match.
 static const uint32_t VENDOR_IDENTIFIER = 389;
 
-// The Device object's Object_Name.
+// The Device object's Object_Name - the DEFAULT one.
 //
 // THIS IS THE ONE THAT WILL BITE YOU. Object_Name must be unique across the
-// whole BACnet internetwork, and here it is a COMPILE-TIME constant. The device
-// instance is runtime-configurable via --deviceID, so it is easy to ship two
-// units, configure their instances correctly, and still have BOTH announce
-// Object_Name "Chipkin Example B-BC" - a spec violation, and a hard BTL failure. In a real
-// product Object_Name must be per-unit configurable too: derive it from a serial
-// number, DIP switches, a config file, or add a --deviceName argument.
+// whole BACnet internetwork (cl. 12.1.1.4): two units that both announce
+// "Chipkin Example B-BC" are a spec violation, and nothing on the wire flags
+// it. So it must be per-unit configurable, exactly like the instance: this
+// example takes it at start-up with --deviceName <text> (common/
+// ParseDeviceNameArg, read into g_deviceName in main()); DEVICE_NAME is only
+// what a unit announces when nobody configured it. In your product, configure
+// the name per unit (a serial number, DIP switches, a config file, or this
+// argument) and change the default below to something that says "not
+// configured yet".
 static const char* DEVICE_NAME = "Chipkin Example B-BC";
+static const char* g_deviceName = DEVICE_NAME; // --deviceName, or the default
 
 // The Device object's Description. Change it to what YOUR device actually is;
 // this string describes this tutorial.
@@ -423,6 +428,9 @@ static const uint32_t TREND_LOG_MULTIPLE_INSTANCE = 1;     // "Magenta"
 static const uint32_t TREND_LOG_MAX_BUFFER_SIZE = 200;
 static const uint32_t TREND_LOG_MULTIPLE_MAX_BUFFER_SIZE = 200;
 static const uint32_t TREND_LOG_POLL_INTERVAL_HUNDREDTHS = 100;  // 1 second (integer-divided by 100)
+// T-ATR-B: Lilac sends a BUFFER_READY notification every this many new records
+// (one record a second, so about every 30 s); read it as Notification_Threshold.
+static const uint32_t TREND_LOG_NOTIFICATION_THRESHOLD = 30;
 static const uint32_t SERVICE_READ_RANGE = 35;
 
 // A WriteProperty to a commandable Present_Value carries a priority 1..16. When a
@@ -1199,7 +1207,7 @@ bool GetPropertyCharString(const uint32_t deviceInstance, const uint16_t objectT
     // Object_Name - the colour name for each object.
     if (propertyIdentifier == PROPERTY_IDENTIFIER_OBJECT_NAME) {
         if (objectType == OBJECT_TYPE_DEVICE && objectInstance == g_deviceInstance) {
-            return ReturnCharacterString(DEVICE_NAME, value, valueElementCount, maxElementCount, encodingType);
+            return ReturnCharacterString(g_deviceName, value, valueElementCount, maxElementCount, encodingType);
         }
         if (objectType == OBJECT_TYPE_ANALOG_INPUT && objectInstance == ANALOG_INPUT_INSTANCE) {
             return ReturnCharacterString("Bronze", value, valueElementCount, maxElementCount, encodingType);
@@ -1296,14 +1304,24 @@ bool GetPropertyCharString(const uint32_t deviceInstance, const uint16_t objectT
 // client normally confirms a TimeSynchronization/UTCTimeSynchronization
 // actually took (chipkin/BACnetProfileExample-B-BC-CPP#7). This example
 // claims both BIBBs, so it has to actually answer these, not just leave the
-// stack's "declined" fallback in place. Real wall-clock local time - the
-// simplest honest answer, and consistent with HelperGetSystemTime().
+// stack's "declined" fallback in place.
+//
+// They are this device's local clock: the host's wall clock plus
+// g_clockOffsetSeconds, the correction the last TimeSynchronization or
+// UTCTimeSynchronization applied (SetSystemTime below). The stack's Schedule and
+// Calendar engines evaluate against these two properties, not against
+// CallbackGetSystemTime, so a time sync moves Saffron and Cream, while the shared
+// helper's GetSystemTime (event time stamps, the Trend Logs' clock) stays on the
+// host clock and stays monotonic. A real device would set its RTC instead of
+// keeping an offset.
+static time_t g_clockOffsetSeconds = 0;
+
 static bool GetCurrentLocalTm(struct tm* out) {
-    const time_t nowSeconds = time(NULL);
+    const time_t deviceNow = time(NULL) + g_clockOffsetSeconds;
 #if defined(_WIN32)
-    return localtime_s(out, &nowSeconds) == 0;
+    return localtime_s(out, &deviceNow) == 0;
 #else
-    return localtime_r(&nowSeconds, out) != NULL;
+    return localtime_r(&deviceNow, out) != NULL;
 #endif
 }
 
@@ -1886,9 +1904,11 @@ bool CompleteRestore(const uint32_t deviceInstance, const bool wasAborted) {
 // SetSystemTime (DM-TS-B and DM-UTC-B). The stack executes both
 // TimeSynchronization and UTCTimeSynchronization and, after converting UTC to
 // local time for the UTC variant, calls this one callback so the application can
-// set its clock. A real device would set its RTC; here we just log it. The
-// matching GetSystemTime callback (used for notification time stamps and event
-// time delays) is registered by the shared helper.
+// set its clock. This example sets its device clock (g_clockOffsetSeconds above):
+// Local_Date / Local_Time, and with them Schedule 1 and Calendar 1, follow the
+// synchronised time from the next read or tick. The matching GetSystemTime
+// callback (used for notification time stamps and event time delays) is
+// registered by the shared helper and stays on the host clock.
 bool SetSystemTime(const uint32_t deviceInstance, const uint8_t year, const uint8_t month,
                    const uint8_t day, const uint8_t weekday, const uint8_t hour,
                    const uint8_t minute, const uint8_t second, const uint8_t hundrethSeconds) {
@@ -1897,9 +1917,32 @@ bool SetSystemTime(const uint32_t deviceInstance, const uint8_t year, const uint
     if (deviceInstance != g_deviceInstance) {
         return false;
     }
-    // BACnet dates count years from 1900 (year value 0 == 1900).
-    printf("SetSystemTime: %04u-%02u-%02u %02u:%02u:%02u\n",
-           1900u + year, month, day, hour, minute, second);
+    // A time sync names one specific moment; a wildcard (255) field cannot set a clock.
+    const uint8_t UNSPECIFIED = 255;
+    if (year == UNSPECIFIED || month == UNSPECIFIED || day == UNSPECIFIED ||
+        hour == UNSPECIFIED || minute == UNSPECIFIED || second == UNSPECIFIED) {
+        printf("SetSystemTime: ignored - the date or time has an unspecified field\n");
+        return false;
+    }
+    // BACnet dates count years from 1900 (year value 0 == 1900), as struct tm does.
+    struct tm requestedTm;
+    memset(&requestedTm, 0, sizeof(requestedTm));
+    requestedTm.tm_year = year;
+    requestedTm.tm_mon = month - 1;
+    requestedTm.tm_mday = day;
+    requestedTm.tm_hour = hour;
+    requestedTm.tm_min = minute;
+    requestedTm.tm_sec = second;
+    requestedTm.tm_isdst = -1; // let the C library decide whether DST applies
+    const time_t requestedTime = mktime(&requestedTm);
+    if (requestedTime == (time_t)-1) {
+        printf("SetSystemTime: ignored - %04u-%02u-%02u %02u:%02u:%02u is not a valid local time\n",
+               1900u + year, month, day, hour, minute, second);
+        return false;
+    }
+    g_clockOffsetSeconds = requestedTime - time(NULL);
+    printf("SetSystemTime: %04u-%02u-%02u %02u:%02u:%02u (device clock is now %lld s from the host clock)\n",
+           1900u + year, month, day, hour, minute, second, (long long)g_clockOffsetSeconds);
     return true;
 }
 
@@ -2038,7 +2081,10 @@ struct RemotePeer {
     uint8_t readPropertyMultipleInvokeId; // the outstanding ReadPropertyMultiple, if any
     bool readPropertyMultiplePending;
     uint32_t pollCount;                   // even = ReadProperty, odd = ReadPropertyMultiple
-    bool sensorFaultReported;             // the peer's own Status_Flags FAULT, from the last RPM
+    // DS-RPM-A fallback: the peer answered a ReadPropertyMultiple with Reject
+    // unrecognized-service, so every poll uses ReadProperty until it binds again.
+    bool readPropertyMultipleUnsupported;
+    bool sensorFaultReported;            // the peer's own Status_Flags FAULT, from the last RPM
     std::chrono::steady_clock::time_point lastPoll;
     std::chrono::steady_clock::time_point lastAnswer; // any answer at all to one of our reads
 };
@@ -2113,6 +2159,9 @@ void HookIAm(const uint32_t deviceIdentifier, const uint32_t maxApduLengthAccept
         printf("PEER: device %u is at %s - polling its Analog Input %u\n",
                REMOTE_DEVICE_INSTANCE, AddressText(connectionString, peerText, sizeof(peerText)),
                REMOTE_ANALOG_INPUT_INSTANCE);
+        // A device at a new address may be a different one: try
+        // ReadPropertyMultiple again.
+        g_peer.readPropertyMultipleUnsupported = false;
     }
     if (!g_peer.bound) {
         g_peer.bound = true;
@@ -2164,7 +2213,7 @@ static void PollPeer() {
                             PROPERTY_IDENTIFIER_PRESENT_VALUE);
     PackReadPropertyElement(elements + 15, OBJECT_TYPE_ANALOG_INPUT, REMOTE_ANALOG_INPUT_INSTANCE,
                             PROPERTY_IDENTIFIER_STATUS_FLAGS);
-    const bool useReadPropertyMultiple = (g_peer.pollCount++ % 2) == 1;
+    const bool useReadPropertyMultiple = (g_peer.pollCount++ % 2) == 1 && !g_peer.readPropertyMultipleUnsupported;
     uint8_t invokeId = 0;
     // ReadProperty takes exactly one element; ReadPropertyMultiple takes both
     // (one object, two properties: the request's one ReadAccessSpecification).
@@ -2409,6 +2458,23 @@ static void HandleReplyFromPeer(const uint8_t* message, size_t messageLength,
     g_peer.lastAnswer = std::chrono::steady_clock::now();
 
     const uint8_t PDU_TYPE_COMPLEX_ACK = 3;
+    const uint8_t PDU_TYPE_REJECT = 6;
+    const uint8_t REJECT_REASON_UNRECOGNIZED_SERVICE = 9;
+    // DS-RPM-A: a peer that does not support ReadPropertyMultiple answers it with
+    // Reject unrecognized-service (cl. 18.8). Fall back to ReadProperty for every
+    // poll; the reading itself is still fine (the ReadProperty polls carry it),
+    // so this is not a fault. Status_Flags (and so the peer's own sensor FAULT)
+    // is then no longer read.
+    if (isReadPropertyMultiple && pduType == PDU_TYPE_REJECT && apduLength >= 3 &&
+        apdu[2] == REJECT_REASON_UNRECOGNIZED_SERVICE) {
+        if (!g_peer.readPropertyMultipleUnsupported) {
+            printf("PEER: device %u does not support ReadPropertyMultiple (Reject unrecognized-service) - "
+                   "polling with ReadProperty only\n", REMOTE_DEVICE_INSTANCE);
+        }
+        g_peer.readPropertyMultipleUnsupported = true;
+        g_peer.sensorFaultReported = false;
+        return;
+    }
     const bool segmented = (apdu[0] & 0x08) != 0;
     if (pduType != PDU_TYPE_COMPLEX_ACK || segmented) {
         // An Error (e.g. the peer has no Analog Input 1), Reject or Abort. The peer
@@ -2699,6 +2765,8 @@ int main(int argc, char** argv) {
         case ParseResult::Run:         break;
     }
     g_deviceInstance = g_options.deviceInstance;
+    // --deviceName: a bad name warns and keeps the default (command_line.cpp lets it through).
+    g_deviceName = CASExampleHelper::ParseDeviceNameArg(argc, argv, DEVICE_NAME);
     CASExampleHelper::ParseXmlLogArg(argc, argv); // --xml: dump every RX/TX frame as XML instead of one line (off by default)
     CASExampleHelper::PrintVersion(APP_NAME, APP_VERSION);
     printf("FYI: Data link: %s (Network Port %u). Run with --help for the others.\n",
@@ -2803,7 +2871,7 @@ int main(int argc, char** argv) {
         // The certificates come first. Without an operational certificate there
         // is nothing to connect with: the request zip has been made and how to go
         // on has been printed.
-        if (!ScNode::PrepareCertificates(g_options.scCertificateDirectory, g_deviceInstance, DEVICE_NAME)) {
+        if (!ScNode::PrepareCertificates(g_options.scCertificateDirectory, g_deviceInstance, g_deviceName)) {
             return 1;
         }
     }
@@ -3373,6 +3441,31 @@ int main(int argc, char** argv) {
         printf("Error: Failed to set Lilac to polled logging.\n");
         return 1;
     }
+    // T-ATR-B is AUTOMATED trend retrieval: the device must TELL a client that the
+    // buffer has new records (135-2024 K.4.5), not only answer ReadRange. Lilac
+    // reports intrinsically with the BUFFER_READY algorithm (cl. 13.3.7) through
+    // Notification Class 1 (Crimson), as an EVENT: every
+    // TREND_LOG_NOTIFICATION_THRESHOLD new records it sends an EventNotification
+    // carrying Buffer_Property, Previous_Notification and Current_Notification, so
+    // a client can fetch just the new records with ReadRange. Adds Event_State,
+    // Notification_Class, Event_Enable, Notify_Type, Notification_Threshold,
+    // Records_Since_Notification, Last_Notify_Record and the other reporting
+    // properties to Lilac. BUFFER_READY notifies without changing Event_State
+    // (it stays NORMAL), so it is reported on the TO-NORMAL transition bit.
+    if (!BACnetStack_SetAlarmsAndEventsForObjectEnabled(
+            g_deviceInstance, OBJECT_TYPE_TREND_LOG, TREND_LOG_INSTANCE,
+            NOTIFICATION_CLASS_INSTANCE, NOTIFY_TYPE_EVENT,
+            true /*enableToOffNormal*/, false /*enableToFault*/, true /*enableToNormal*/,
+            true /*enableEventDetection*/, true /*enabled*/)) {
+        printf("Error: could not enable event reporting on Trend Log 1 (Lilac).\n");
+        return 1;
+    }
+    if (!BACnetStack_SetIntrinsicBufferReadyAlgorithm(g_deviceInstance, OBJECT_TYPE_TREND_LOG, TREND_LOG_INSTANCE,
+                                                      TREND_LOG_NOTIFICATION_THRESHOLD, 0 /*no time delay, cl. 13.3.7*/,
+                                                      true /*enable*/)) {
+        printf("Error: could not arm the BUFFER_READY algorithm on Lilac.\n");
+        return 1;
+    }
 
     // --- T-VMT-I-B / T-ATR-B: Trend Log Multiple 1 (Magenta) - polls several points ---
     if (!BACnetStack_AddTrendLogMultipleObject(g_deviceInstance, TREND_LOG_MULTIPLE_INSTANCE,
@@ -3437,7 +3530,7 @@ int main(int argc, char** argv) {
     }
 
     printf("FYI: Device %u (\"%s\") ready. Vendor ID %u. Press 'h' for help.\n",
-           g_deviceInstance, DEVICE_NAME, VENDOR_IDENTIFIER);
+           g_deviceInstance, g_deviceName, VENDOR_IDENTIFIER);
     // The tutorial ships with no password so every client can try the
     // DM-DCC-B / DM-RD-B services. Say so, every start: on BACnet/SC that
     // password is all that stands between any peer on the hub and rewriting
@@ -3575,17 +3668,14 @@ int main(int argc, char** argv) {
                 // SCHED-I-B demo: add a Weekly_Schedule transition for RIGHT NOW
                 // (today, current h:m:s) instead of waiting for the pre-seeded
                 // Monday 08:00 entry. The schedule engine evaluates Weekly_Schedule
-                // against wall-clock time on every tick, so once this entry exists
-                // it is immediately the latest transition today and Chartreuse
-                // (Analog Output 1) moves to SCHEDULE_DEMO_VALUE at
-                // SCHEDULE_WRITE_PRIORITY on the next tick.
-                time_t now = time(NULL);
+                // against the device clock (Local_Date / Local_Time) on every tick,
+                // so once this entry exists it is immediately the latest transition
+                // today and Chartreuse (Analog Output 1) moves to
+                // SCHEDULE_DEMO_VALUE at SCHEDULE_WRITE_PRIORITY on the next tick.
                 struct tm nowTm;
-#if defined(_WIN32)
-                localtime_s(&nowTm, &now);
-#else
-                localtime_r(&now, &nowTm);
-#endif
+                if (!GetCurrentLocalTm(&nowTm)) {
+                    break;
+                }
                 // BACnetDailySchedule day order is 0=Monday..6=Sunday; tm_wday is
                 // 0=Sunday..6=Saturday, so shift it.
                 const uint8_t dayOffset = (uint8_t)((nowTm.tm_wday + 6) % 7);

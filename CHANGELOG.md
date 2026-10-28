@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.0] - unreleased
+## [1.3.0] - unreleased
 
 One executable, four data links, chosen at run time: `--datalink ipv4|ipv6|mstp|sc`.
 The default, `ipv4`, is the same device as 1.1.0.
@@ -110,375 +110,115 @@ Code review of the four-data-link build (#21).
   destination address). The generated PICS table lists Network Port 3's
   Max_Master and Max_Info_Frames as writable.
 
-## [1.1.0] - unreleased
+## [1.2.0] - 2026-10-27
 
-The example is now **Profile-functional** (series glossary): it performs the
-B-BC Profile Function against a Peer, shows a Failure Mode, and Wire Tests that
-fail when either is removed prove both.
+Built on CAS BACnet Stack 6.x (`69b6249f`).
 
 ### Added
 
-- Wire Tests use the shared `wiretest/` 0.6.0: `HumidityPeer` is now a thin `wiretest.SimulatedServer` subclass, and `status_flags` / `wait_until` come from wiretest.
-- **DS-RP-A and DS-RPM-A - the controller reads another device.** `main.cpp`
-  section 2e learns peer device 389002's address from its I-Am
-  (`BACnetStack_RegisterHookIAm`) and polls its Analog Input 1 (humidity, %)
-  once a second, alternating ReadProperty (`Present_Value`) and
-  ReadPropertyMultiple (`Present_Value` + `Status_Flags`). The answers are
-  decoded in the receive callback, because the stack has no callback that
-  delivers a ReadProperty-ACK's value; every datagram still goes on to the
-  stack. The reading becomes Analog Value 1 "Diamond"'s `Present_Value`, so
-  Diamond's OutOfRange alarm and Trend Log Multiple 1's trend now act on a
-  value from another device.
-- **Failure Mode - the peer goes silent.** After 3 s without any answer,
-  Diamond reports `Reliability` = `communication-failure` (and so the
-  `Status_Flags` FAULT bit, cl. 12.4.6), keeps its last good value and keeps
-  probing the peer; it recovers when the peer answers. A peer that answers but
-  flags its own sensor FAULT makes Diamond `unreliable-other` and holds the
-  last good value.
-- **Wire Tests** `tests/controller_test.py` (15 checks: both reads, Diamond
-  following the peer, the alarm on the remote value, the peer-sensor-fault
-  hold, Schedule 1's write to a peer that bound after start-up, Diamond
-  read-only) and `tests/failure_mode_test.py` (7 checks), with
-  `tests/bc_setup.py` and its `HumidityPeer` - a Python Peer (wiretest's
-  `SimulatedDevice` plus ReadProperty / ReadPropertyMultiple / WriteProperty
-  of an Analog Input and Output, a FAULT flag and a silent switch). Standard
-  library only; `run_wire_tests.py` runs them. Every check was mutation-verified
-  (the feature removed, the check seen to fail).
+- **`--deviceName <text>`** sets the Device's Object_Name at start-up, like
+  `--deviceID` sets its instance, so two units can be installed together (BACnet
+  requires both to be configurable, cl. 12.1.1.3 and 12.1.1.4). The default is
+  unchanged (`Chipkin Example B-BC`). A name must be 1 to 255 bytes with no control
+  characters, otherwise the example warns and keeps the default. The name is not
+  writable over the network.
+- **Trend Log 1 notifies a client when it has new records** (T-ATR-B, 135-2024
+  K.4.5). It reports BUFFER_READY intrinsically (cl. 13.3.7) through Notification
+  Class 1 every 30 new records, and carries the event-reporting properties.
+- **A time synchronization now sets the device clock** (DM-TS-B, DM-UTC-B).
+  `Local_Date` and `Local_Time` follow it, as do the Schedule and Calendar. Before,
+  TimeSynchronization was acknowledged but changed nothing.
+- Automated self-tests under `tests/` for the new behaviour.
 
 ### Changed
 
-- **`common/` 3.3.0 -> 3.4.0**, copied verbatim from B-SS-CPP `5d78299`: `HelperSendMessage`
-  sends a broadcast addressed to this socket's own address to the subnet broadcast instead of
-  unicast to itself (stack #3933). README version lines updated.
-- `tests/discovery_test.py` sends its Who-Is once more, with a visible `[RETRY]` line, when no
-  I-Am comes back in 3 s (`tools/patch-discovery-whois-retry.py` from the example series).
-  Who-Is is unconfirmed, so nothing else retries it, and the example's UDP receive can drop a
-  datagram on Windows (`common/` SimpleUDP).
-- **Analog Value 1 "Diamond" is read-only** and has the optional
-  `Reliability` property: its value belongs to the peer. To fire its alarm,
-  drive the peer's Analog Input 1 above 90 or below 10 (it used to be a
-  WriteProperty to Diamond).
-- **The example owns its BACnet/IP socket** (`SimpleUDP` + its own
-  receive/send callbacks, as B-OD-CPP does) instead of
-  `CASExampleHelper::SetupUDP()`, so its receive callback can see the replies.
-  Console output is unchanged.
-- README (the scenario, what is Simulation, status), PICS (DS-RP-A / DS-RPM-A
-  "Yes", ReadProperty / ReadPropertyMultiple initiated, Diamond's
-  properties), TUTORIAL ("Reading another device"), TODO.md.
+- Vendored `common/` updated to 3.5.0 (adds an optional `--deviceName` help line).
+- The self-tests' default `--port` is 47838, this example's own port in the series.
 
 ### Fixed
 
-- **`Total_Record_Count` is not missing.** The 1.0.8 note that both Trend Logs
-  lack it read property 322 by mistake; property 145 is in both objects'
-  `Property_List` and climbs with `Record_Count` (checked by hand at
-  `64b2cfac5`). README, PICS and TODO.md no longer report a stack gap.
+- **DS-RPM-A: the controller falls back to ReadProperty.** When a peer rejects
+  ReadPropertyMultiple as an unrecognized service, the controller now polls it with
+  ReadProperty only, and its reading stays reliable. Before, it kept sending
+  ReadPropertyMultiple forever.
+- **Requests no longer go unanswered on Windows**: a request arriving just as the UDP
+  receive timed out was silently dropped.
+- **PICS corrections**: the Trend Logs' writable properties (`Enable`,
+  `Record_Count`, `Log_Interval`) are listed; `Database_Revision` is documented as
+  14; ConfirmedEventNotification is listed as initiated (AE-N-I-B); the Trend Log
+  Multiple's required properties are listed.
+- **`--help` lists only the options the example reads.** It no longer lists
+  `--dcc-password`; `--xml` is documented in the README.
 
-## [1.0.8] - unreleased
+## [1.1.0] - 2026-10-16
+
+Built on CAS BACnet Stack 6.x (`64b2cfac5`, 6.0.23), Protocol_Revision 30. Includes
+the changes first developed as 1.0.1 to 1.0.8.
+
+The example now performs the B-BC Profile Function against a peer, and shows a
+failure mode.
 
 ### Added
 
-- **Wire Tests run unattended and in CI.** `tests/run_wire_tests.py` runs
-  three scripts against a fresh device each: the new
-  `tests/discovery_test.py` (B-SS-CPP's discovery test with this example's
-  fifteen objects, plus B-ACC-CPP's rule that a log object's `Log_Buffer` must
-  be *refused* by ReadProperty - cl. 12.25.14, 12.30.19, 15.5.1.3.1), and the
-  two existing bacpypes3 scripts, `sched_e_b_remote_peer.py` and
-  `calendar_reference_check.py`, which used to need a hand-started device.
-  `tests/requirements.txt` names bacpypes3; `release.yml` installs it and runs
-  the Wire Tests on Linux after the smoke test. All three pass on Windows and
-  Linux.
-- `wiretest/` 0.5.0, the series' shared Wiretest Harness, vendored verbatim.
+- **DS-RP-A and DS-RPM-A: the controller reads another device.** It learns peer
+  device 389002 from its I-Am and polls its Analog Input 1 (humidity) once a second,
+  alternating ReadProperty and ReadPropertyMultiple. The reading becomes Analog Value
+  1 "Diamond"'s `Present_Value`, so Diamond's OutOfRange alarm and Trend Log Multiple
+  1 act on a value from another device.
+- **Failure mode: the peer goes silent.** After 3 s without an answer, Diamond
+  reports `Reliability` = `communication-failure` (and the FAULT status flag),
+  keeps its last good value and keeps probing; it recovers when the peer answers. A
+  peer that flags its own sensor FAULT makes Diamond `unreliable-other`.
+- **Stack-held Calendar**: Calendar 1 "Cream" is writable and holds December 25 of
+  every year; Schedule 1 "Saffron"'s exception references it.
+- **Segmentation is supported** (`segmented-both`, `Max_Segments_Accepted` 16).
+- **`--xml`** prints every frame as a full XML block; RX/TX log lines name the
+  service, object and property, and any routing destination.
+- Automated self-tests under `tests/` (`run_wire_tests.py`), which also run in CI.
+- New documents: `TUTORIAL.md` (extending and reviewing the example) and
+  `docs/PICS.md` (the conformance statement).
 
 ### Changed
 
-- **Stack Pin** `issues/runbook` @ `00aa2d0e` (6.0.22) -> `6.x` @ `64b2cfac5`
-  (6.0.23): the stack-held Calendars reached `6.x`, so the pin is back on the
-  branch `.gitmodules` names. No API change needed.
-- **`common/` 3.0.0 -> 3.3.0** (B-SS-CPP `b640a81`, verbatim).
-- **Protocol_Revision 26 -> 30** (the stack's default at the new pin; the
-  README said 26, AGENTS.md and comments said 24).
-- **Segmentation is now supported** (`segmented-both`, `Max_Segments_Accepted`
-  16, `APDU_Segment_Timeout` 5000 ms): the stack's customer build compiles
-  segmentation in from this pin (stack #2992). `docs/PICS.md` section 5 updated.
-- **DS-RP-A and DS-RPM-A are no longer claimed.** The README and PICS ticked
-  them, but nothing in `main.cpp` initiates ReadProperty or
-  ReadPropertyMultiple (the PICS services table already said "no"). Both are
-  required for B-BC (135-2024 Annex L), so the README's status note now says
-  the example is not yet BIBB-conformant; TODO.md item 1.
-- **TODO.md rewritten against the new pin.** Every stack issue it cited is
-  closed and re-checked: #2050 and #2381 (log noise - none), #2341 (UUID line -
-  gone), #2340 (Network Port reads - discovery passes), #2343 (the remote write
-  made before 389002 is bound is now kept until it binds - checked on the wire
-  with a peer that only sends an I-Am). New, not filed: Trend Log and Trend
-  Log Multiple lack the required `Total_Record_Count` (Error unknown-property;
-  the PICS row is now flagged).
-- Backup and restore checked by hand at the new pin (every step of
-  STARTBACKUP .. ENDRESTORE acknowledged) - the README said it had not been
-  re-tested.
-- `main.cpp` comments said "A B-AAC must" where they meant B-BC.
-- README, AGENTS.md and PICS version lines: stack 6.0.23, `common/` 3.3.0,
-  Protocol_Revision 30. The series profile table is re-synced. APP_VERSION
-  1.0.7 -> 1.0.8.
-
-## [1.0.7] - 2026-09-23
-
-### Changed
-
-- **Calendar 1 ("Cream") is now stack-held, and Schedule 1 ("Saffron")'s
-  exception references it.** Stack issue
-  [#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758) is fixed
-  on `issues/runbook` (IFC-045). `BACnetStack_AddCalendarObject` hands Cream
-  to the stack, which stores `Date_List` and derives `Present_Value` from
-  the device's `Local_Date`. Cream's `Date_List` holds December 25 of every
-  year (`BACnetStack_AddCalendarDateEntry`), and it is WRITABLE
-  (`SetPropertyWritable`, property 23), so clients can add holidays with
-  WriteProperty / AddListElement. Saffron's exception moved from the inline
-  `...WithCalendarEntry` form to
-  `BACnetStack_AddScheduleExceptionEventWithCalendarReference` pointing at
-  Cream. The app no longer serves Cream's `Present_Value` from
-  `GetPropertyBool`, because the stack answers first.
-- New `tests/calendar_reference_check.py`: writes today into Cream's
-  `Date_List` and checks that Cream's `Present_Value` goes TRUE, Saffron's
-  exception takes over, and Chartreuse moves to 5.0, then restores the
-  list. Verified live: Cream FALSE -> TRUE, Chartreuse 20.0 -> 5.0 -> 20.0
-  after restore (PASS).
-- **CAS BACnet Stack pinned to `issues/runbook` @ `00aa2d0e`**, ahead of
-  `6.x` @ `22ac3c98`, for the Calendar exports. It still reports 6.0.22.
-  Move back to `6.x` once #1758 lands there. #2051's stack-side change on
-  this branch is documentation only: the root cause was this example's
-  local-time window, fixed in 1.0.6.
-- **Known log noise on this pin:** a one-off startup burst of
-  `BACnetDateTime ... Failed to set the date/time` lines (bisected to stack
-  commit `4c793c15`, #2207), plus a `BACnetDateRange` pair on each Calendar
-  `Date_List` access. Filed as
-  [cas-bacnet-stack#2381](https://github.com/chipkin/cas-bacnet-stack/issues/2381).
-  TODO.md item 1.
-- TODO.md: the Calendar gap (old item 3) is removed and the items after it
-  are renumbered. TUTORIAL.md, AGENTS.md, README.md and `docs/objects.json`
-  now describe the stack-held Calendar (PICS regenerated).
-- Re-verified on this pin: Trend Log 1 / Trend Log Multiple 1 record (28 /
-  29 records), ReadPropertyMultiple of the whole Device OK, and
-  `tests/sched_e_b_remote_peer.py` PASS.
-- APP_VERSION bumped 1.0.6 -> 1.0.7.
-
-## [1.0.6] - 2026-09-22
+- **Analog Value 1 "Diamond" is read-only** and has the optional `Reliability`
+  property: its value belongs to the peer. To fire its alarm, drive the peer's
+  Analog Input 1 above 90 or below 10.
+- **The Device is now named "Chipkin Example B-BC"** (was "Rainbow") so examples on
+  one network can be told apart.
+- **Protocol_Revision is 30** (was 26 in the README).
+- The example owns its BACnet/IP socket; console output is unchanged.
+- Build documentation uses the adapter's default source mode:
+  `cmake -B build -S .` then `cmake --build build --config Release`, on every
+  platform. If you have an older build tree, run `cmake -B build` again.
+- `common/` updated to 3.4.0: a broadcast addressed to the socket's own address is
+  sent to the subnet broadcast.
+- The Device `Description` is shorter, and the example warns if a served string is
+  too long.
 
 ### Fixed
 
-- Trend Log 1 ("Lilac")'s `Record_Count` now climbs as expected
-  ([#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051)). The
-  Start_Time/Stop_Time window passed to `BACnetStack_SetTrendLogStartStopTime`
-  was built with `localtime_s`/`localtime_r`, but the stack's own "now" (built
-  from `HelperGetSystemTime()`'s raw `time(0)` and this example's unserved
-  Device `UTC_Offset`, i.e. 0) is UTC wall-clock - on any host not in UTC, the
-  window no longer bracketed the clock the stack actually compares against, so
-  `ReadyToLog` never passed and no records were ever logged. Switched to
-  `gmtime_s`/`gmtime_r` so the window is built from the same clock the stack
-  uses. Live-verified with bacpypes3: `Record_Count` climbs continuously
-  (observed 14 -> 29 -> 44 over 30 seconds). This was a bug in the example,
-  not the stack, so TODO.md's old item 1 is removed and the remaining items
-  are renumbered. (merged from #9)
-
-### Changed
-
-- Stack issue links now point at open issues. The Calendar `Date_List` gap
-  moved from the closed cas-bacnet-stack #963 to
-  [#1758](https://github.com/chipkin/cas-bacnet-stack/issues/1758) in
-  `main.cpp`'s comments, `README.md` and `docs/objects.json`, and
-  `docs/PICS.md` was regenerated from it.
-- The SCHED-E-B wording in `README.md`, `docs/PICS.md` and
-  `docs/objects.json` said the remote write was "not wire-verified". It now
-  says the write is wire-verified and links the startup-write gap
-  ([cas-bacnet-stack#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)).
-  README's known-gaps summary no longer lists the #2050 log flood, which is
-  gone on 6.0.22.
-- APP_VERSION bumped 1.0.5 -> 1.0.6.
-
-## [1.0.5] - 2026-09-22
-
-### Changed
-
-- **CAS BACnet Stack moved to 6.0.22** (`6.x` @ `22ac3c98`), from 6.0.21
-  (`issues/runbook` @ `a8d3b6bf`). The example is back on the `6.x` branch
-  that `.gitmodules` names. The early fixes the old pin existed for (#2163,
-  #2164, #2165) are all on `6.x` now. No `main.cpp` changes were needed.
-  If you already have a build tree, run `cmake -B build` again before
-  building. The stack added a new source file, and the adapter's
-  configure-time glob won't see it otherwise
-  ([cas-bacnet-stack#2342](https://github.com/chipkin/cas-bacnet-stack/issues/2342)).
-- **TODO.md re-verified live on 6.0.22.** The Trend Log 1 `Record_Count`
-  gap (#2051) still reproduces. The `AddTrendLogObject` log flood (#2050) is
-  gone. Network Port 1's unreadable `Property_List` entries still reproduce
-  even though #2196 was closed, and are refiled as
-  [cas-bacnet-stack#2340](https://github.com/chipkin/cas-bacnet-stack/issues/2340).
-  New item 8 records the harmless startup BACnet/SC "UUID has not been set"
-  error
-  ([cas-bacnet-stack#2341](https://github.com/chipkin/cas-bacnet-stack/issues/2341)).
-  Every open item now links to its tracking issue in this repo.
-- **SCHED-E-B remote fan-out verified on the wire** (#6). The new
-  `tests/sched_e_b_remote_peer.py` plays peer device 389002 and sends a
-  unicast I-Am, so the DAB binds it on one host without a BBMD. Schedule 1
-  then writes the peer's AO 1 at priority 8, and the peer SimpleACKs. This
-  found one stack gap: the startup write, skipped while the peer isn't
-  bound yet, is never re-sent
-  ([cas-bacnet-stack#2343](https://github.com/chipkin/cas-bacnet-stack/issues/2343)).
-  TODO.md item 3, TUTORIAL.md and AGENTS.md are updated to match.
-- TUTORIAL.md's `DEVICE_NAME` notes now say "Chipkin Example B-BC". The
-  1.0.4 rename missed this file.
-- APP_VERSION bumped 1.0.4 -> 1.0.5.
-
-## [1.0.4] - 2026-09-22
-
-### Changed
-
-- **Device renamed from the series' colour placeholder "Rainbow" to "Chipkin
-  Example B-BC"** so devices from different examples in the series are
-  distinguishable from each other on the same BACnet network - every example
-  previously announced the identical Object_Name "Rainbow", which made two
-  examples on one subnet indistinguishable by name. Sub-object names (Analog
-  Input 1 "Bronze", etc.) are unchanged - only the Device object's name
-  changed. `docs/colour-table.md` (series root) updated to match. APP_VERSION
-  bumped 1.0.3 -> 1.0.4.
-
-## [1.0.3] - 2026-09-22
-
-### Fixed
-
-- **`Application_Software_Version` (12) and `Firmware_Revision` (44) were
-  hardcoded and stale** - both served the literal `"1.0.0"` regardless of the
-  actual build, and `Firmware_Revision` was never meant to be this example's
-  own version at all; it names the underlying platform. Fixed:
-  `Application_Software_Version` now reads `APP_VERSION` directly (one
-  source of truth, can't drift from `--version`'s own banner again).
-  `Firmware_Revision` is now built at runtime from the CAS BACnet Stack's
-  own `BACnetStack_GetAPIMajorVersion()`/`GetAPIMinorVersion()`/
-  `GetAPIPatchVersion()`/`GetAPIBuildVersion()` (the same 4 calls
-  `common/CASExampleHelper.cpp`'s `PrintVersion()` already uses for the
-  startup banner), populated once right after `LoadBACnetFunctions()`
-  succeeds. Verified with a real ReadProperty against the running device
-  (`bacpypes3`): `Application_Software_Version = "1.0.3"`,
-  `Firmware_Revision = "6.0.21.0"` - both now match the actual running build
-  instead of the stale hardcoded string.
-
-## [1.0.2] - 2026-09-18
-
-### Changed
-
-- Stack submodule pinned to `issues/runbook` @ `a8d3b6bf` (ahead of `6.x` @
-  `986c48a6`) - see `TODO.md` for the fixes this picks up
-  (chipkin/cas-bacnet-stack#2050/#2163/#2164/#2165/#2175) and why the pin is
-  deliberately ahead of the branch `.gitmodules` names.
-
-## [1.0.1] - 2026-09-17
-
-### Fixed
-
-- **Reading the Device's `Description` aborted the connection instead of
-  returning the string.** `DEVICE_DESCRIPTION` was 286 characters, over the
-  stack's 256-character buffer on a full build - and, contrary to the
-  truncation guard's own (wrong) comment claiming this string "fits with
-  room to spare," the over-length read Aborted outright rather than being
-  truncated. Shortened to 214 characters (well under the limit, with real
-  margin) and corrected the guard's comment; it now also warns loudly if a
-  served string is ever too long again, instead of silently clipping it.
-  This was also the actual trigger for `ReadPropertyMultiple(ALL)` aborting
-  the entire Device read (see chipkin/cas-bacnet-stack#2175) - fixing it
-  here makes RPM(ALL) on the Device object succeed even before that stack
-  issue lands. (chipkin/BACnetProfileExample-B-BC-CPP#7)
-- **The Device's `Local_Date`/`Local_Time` read back `Error:
-  read-access-denied`**, even though this example claims DM-TS-B/DM-UTC-B -
-  these two properties are exactly what a client reads to confirm a time
-  sync took. The stack deliberately refuses to invent a default for either
-  (documented in `main.cpp`'s "WHAT false-WITHOUT-AN-ERROR-CODE ACTUALLY
-  DOES" comment) - the app has to actually serve them. `GetPropertyDate`/
-  `GetPropertyTime` now answer the Device object with the real wall-clock
-  local date/time, the same clock `HelperGetSystemTime()` already uses.
-  New `PROPERTY_IDENTIFIER_LOCAL_DATE`/`_LOCAL_TIME` constants in `common/`
-  2.8.0. (chipkin/BACnetProfileExample-B-BC-CPP#7)
-
-### Changed
-
-- `README.md`/`docs/PICS.md` said `Protocol_Revision 24`; the running device
-  (against the currently pinned stack) reports 26 - the stack computes this
-  value itself, so this was a docs-only correction, not a code change.
-  Updated the "Versions" banner to the current stack commit (`986c48a6`) and
-  `common/` version (2.8.0) too. (chipkin/BACnetProfileExample-B-BC-CPP#7)
-
-### Added
-
-- Synced `common/` to 2.7.0 (from `BACnetProfileExample-B-SS-CPP`): RX/TX log
-  lines now name the service, the object/property being requested, and any
-  NPDU routing destination (DNET/DADR) - live-verified against this
-  example's own SCHED-E-B remote-discovery Who-Is, which correctly showed
-  `DNET=65535`. A new `--xml` option (off by default) prints every frame as
-  a full XML block instead. See `common/CHANGELOG.md` for the decode
-  details.
-
-### Changed
-
-- Restructured documentation to match the series' shared shape: `README.md`
-  is cut down to what this example is and how to build/run/verify it;
-  `TUTORIAL.md` (new) carries the extending/reviewing material and every
-  silent-failure trap and filed stack gap (SetTrendLogStartStopTime blocking
-  Lilac's Record_Count - #2051, the AddTrendLogObject log flood - #2050, the
-  SCHED-E-B remote-write test-topology limitation, and the Calendar Date_List
-  gap - #963); `docs/PICS.md` (new) is the ANSI/ASHRAE 135 Annex A conformance
-  statement, generated in part from `docs/objects.json`.
-- `docs/objects.json` gained a `Device` entry (previously the generated tables
-  omitted the Device object).
-- Build documentation switched from the prebuilt **STATIC** library
-  (`tools/build-stack-static.sh` + `-DCAS_BACNET_STACK_LINK=STATIC`) to the
-  adapter's default **SOURCE** mode: `cmake -B build -S .` then
-  `cmake --build build --config Release`, identical on every platform, no
-  series-root script or prebuilt library step. `.github/workflows/release.yml`
-  dropped the static-library cache/build steps and the matrix `lib:` entries,
-  configures without a link-mode flag, asserts `CAS_BACNET_STACK_LINK=SOURCE`,
-  records `"link_mode": "SOURCE"` in the published metrics, and packages
-  `TUTORIAL.md` / `docs/PICS.md` alongside the binary. The published v1.0.0
-  footprint numbers were measured under the STATIC build; the next release
-  refreshes them under the SOURCE build documented here.
-- `main.cpp`'s `CHANGE ALL OF THIS BEFORE YOU SHIP` block gained a per-field
-  comment for every ship-checklist item, including the `DEVICE_NAME`
-  uniqueness warning.
+- **Reading the Device's `Description` aborted** the request because the string was
+  over the stack's 256-character buffer. ReadPropertyMultiple of the whole Device
+  now works.
+- **`Local_Date` and `Local_Time` read back `read-access-denied`**; they now return
+  the device's local date and time.
+- **`Application_Software_Version` and `Firmware_Revision` were hardcoded** to
+  "1.0.0"; they now report the build's version and the CAS BACnet Stack version.
+- **Trend Log 1 `Record_Count` never incremented** on hosts not in UTC. The logging
+  window was built from the local clock instead of UTC.
+- The Notification Class object is named "Crimson", not "Jade".
 
 ## [1.0.0] - 2026-09-15
 
 ### Added
 
-- Initial implementation of the **B-BC (Building Controller)** profile - the
-  series capstone. Seeded from B-AAC-CPP (baseline objects, commandable
-  outputs, intrinsic alarming, a writable event-recipient list, internal
-  scheduling, time synchronisation, DeviceCommunicationControl,
-  ReinitializeDevice - all already proven there) and grafted with:
-  - **F-BACKUP (DM-BR-B)**, from B-ACC-CPP: File 1 "Ivory" (stream-access,
-    writable), AtomicReadFile/AtomicWriteFile, the four Prepare/Complete
-    Backup/Restore callbacks, and `ReinitializeDevice` extended to accept the
-    five backup/restore states (2-6) alongside COLDSTART/WARMSTART.
-  - **SCHED-E-B**, extending B-AAC's internal scheduling: Schedule 1
-    "Saffron" now appends a second `List_Of_Object_Property_References`
-    entry targeting a remote peer device's Analog Output 1, in addition to
-    its existing local target - each `AddScheduleObjectPropertyReference`
-    call appends rather than replaces.
-  - **F-TREND (T-VMT-I-B / T-ATR-B) - new in this example.** Trend Log 1
-    "Lilac" (type 20) polls Analog Input 1 "Bronze"; Trend Log Multiple 1
-    "Magenta" (type 27) polls three points (Bronze, Diamond, Chartreuse).
-    ReadRange (service 35) retrieves `Log_Buffer` (a plain ReadProperty of it
-    is rejected by the stack itself). `BACnetStack_InsertTrendLogRecord` was
-    confirmed genuinely customer-facing at this pin before being relied upon.
-- `TODO.md` documents every known gap: a confirmed stack defect where
-  `SetTrendLogStartStopTime` blocks a Trend Log's `Record_Count` from ever
-  incrementing (filed as
-  [cas-bacnet-stack#2051](https://github.com/chipkin/cas-bacnet-stack/issues/2051));
-  a non-fatal internal log flood triggered by `AddTrendLogObject` alone
-  (filed as
-  [#2050](https://github.com/chipkin/cas-bacnet-stack/issues/2050), same
-  class as B-ACC's #2045 for Event Log); the SCHED-E-B remote write's
-  cross-instance wire-test topology limitation; and the inherited Calendar
-  `Date_List` gap (issue #963).
-
-### Fixed
-
-- The Notification Class object, inherited from the B-AAC seed, was named
-  "Jade" - the series' canonical colour for `lighting_output` (claimed by
-  B-LD), not `notification_class` (canonically "Crimson", per
-  `docs/colour-table.md`). Renamed to "Crimson" throughout.
+- Initial implementation of the **B-BC (Building Controller)** profile: baseline
+  objects, commandable outputs, intrinsic alarming with a writable event recipient
+  list, internal scheduling, time synchronization, DeviceCommunicationControl and
+  ReinitializeDevice.
+- **Backup and restore (DM-BR-B)**: File 1 "Ivory", AtomicReadFile/AtomicWriteFile and
+  the five backup/restore ReinitializeDevice states.
+- **SCHED-E-B**: Schedule 1 "Saffron" also writes a remote peer's Analog Output 1.
+- **Trending (T-VMT-I-B / T-ATR-B)**: Trend Log 1 "Lilac" and Trend Log Multiple 1
+  "Magenta", retrieved with ReadRange.
+- `TODO.md` lists the known gaps.

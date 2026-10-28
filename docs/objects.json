@@ -20,17 +20,17 @@
         "Max_APDU_Length_Accepted",
         "Segmentation_Supported",
         "APDU_Timeout",
-        "Number_Of_APDU_Retries",
-        "Database_Revision"
+        "Number_Of_APDU_Retries"
       ],
-      "note": "the device itself; the instance is configurable with --deviceID. The stack rows are device-wide facts only the stack knows - the protocol version and revision it implements, the services and object types it was configured with, the live object list and address-binding table. The accepted rows are the stack's configured defaults for APDU limits, segmentation, system status and database revision; an application that answered them from its own constants could contradict the stack, so this example does not",
+      "note": "the device itself; the instance is configurable with --deviceID and the Object_Name with --deviceName (both at start-up; the heading shows the defaults). The stack rows are device-wide facts only the stack knows - the protocol version and revision it implements, the services and object types it was configured with, the live object list and address-binding table, and Database_Revision, which the stack starts at 0 and increments as the objects are added at start-up: it reads 14 and stays 14, because nothing creates, deletes or renames an object afterwards (a command, a Schedule write, a Recipient_List or Date_List write, an alarm, a time sync or a DeviceCommunicationControl changes no object). The accepted rows are the stack's configured defaults for APDU limits, segmentation and system status; an application that answered them from its own constants could contradict the stack, so this example does not",
       "stack": [
         "Object_List",
         "Protocol_Version",
         "Protocol_Revision",
         "Protocol_Services_Supported",
         "Protocol_Object_Types_Supported",
-        "Device_Address_Binding"
+        "Device_Address_Binding",
+        "Database_Revision"
       ]
     },
     {
@@ -232,10 +232,11 @@
       "instance": 1,
       "name": "Lilac",
       "app": ["Object_Name"],
-      "enabled": [],
-      "writable": [],
-      "accepted": ["Enable", "Stop_When_Full", "Buffer_Size", "Log_Buffer", "Record_Count", "Logging_Type", "Event_State", "Total_Record_Count"],
-      "note": "T-VMT-I-B / T-ATR-B. Enable, Stop_When_Full, Buffer_Size, Log_Buffer, Record_Count and Logging_Type are NOT stack defaults - they are genuinely held and served by the stack's Trend Log engine (BACnetStack_AddTrendLogObject + SetTrendLogTypeToPolled + SetTrendLogStartStopTime), marked accepted only because property-profile-reference.md's generic table does not know about this host-configuration API. Polls Analog Input 1 (Bronze) Present_Value every second. Log_Buffer is readable only via ReadRange (a plain ReadProperty is rejected with Error(OBJECT, READ_ACCESS_DENIED) - verified live). Record_Count climbs correctly (fixed cas-bacnet-stack#2051 - the Start_Time/Stop_Time window is now built from the same clock, UTC via gmtime, that the stack itself compares against, not local wall-clock) - live-verified: Record_Count climbed from 14 to 44 over 30 seconds. Total_Record_Count (145) is listed in Property_List and climbs with Record_Count (checked by hand at 64b2cfac5; the phase-1 'missing' note read property 322 by mistake - TODO.md). (The #2050 log flood is fixed.)"
+      "enabled": ["Notification_Class", "Event_Enable", "Notify_Type", "Acked_Transitions", "Event_Time_Stamps", "Event_Detection_Enable", "Notification_Threshold", "Records_Since_Notification", "Last_Notify_Record"],
+      "writable": ["Enable", "Record_Count", "Log_Interval"],
+      "stack": ["Notification_Class", "Event_Enable", "Notify_Type", "Acked_Transitions", "Event_Time_Stamps", "Event_Detection_Enable", "Notification_Threshold", "Records_Since_Notification", "Last_Notify_Record"],
+      "accepted": ["Enable", "Stop_When_Full", "Buffer_Size", "Log_Buffer", "Record_Count", "Logging_Type", "Log_Interval", "Event_State", "Total_Record_Count"],
+      "note": "T-VMT-I-B / T-ATR-B. T-ATR-B: Lilac reports BUFFER_READY intrinsically (BACnetStack_SetAlarmsAndEventsForObjectEnabled + SetIntrinsicBufferReadyAlgorithm, cl. 13.3.7) through Notification Class 1 (Crimson), notify type EVENT, every 30 new records (Notification_Threshold 30); the stack holds the event-reporting properties listed here and Event_State, which stays normal (BUFFER_READY notifies without a state change). Wire Test trend_retrieval_test.py. Enable, Stop_When_Full, Buffer_Size, Log_Buffer, Record_Count and Logging_Type are NOT stack defaults - they are genuinely held and served by the stack's Trend Log engine (BACnetStack_AddTrendLogObject + SetTrendLogTypeToPolled + SetTrendLogStartStopTime), marked accepted only because property-profile-reference.md's generic table does not know about this host-configuration API. Polls Analog Input 1 (Bronze) Present_Value every second. Log_Buffer is readable only via ReadRange (a plain ReadProperty is rejected with Error(OBJECT, READ_ACCESS_DENIED) - verified live). Record_Count climbs correctly (fixed cas-bacnet-stack#2051 - the Start_Time/Stop_Time window is now built from the same clock, UTC via gmtime, that the stack itself compares against, not local wall-clock) - live-verified: Record_Count climbed from 14 to 44 over 30 seconds. Total_Record_Count (145) is listed in Property_List and climbs with Record_Count (checked by hand at 64b2cfac5; the phase-1 'missing' note read property 322 by mistake - TODO.md). (The #2050 log flood is fixed.)"
     },
     {
       "type": "Trend Log Multiple",
@@ -243,9 +244,9 @@
       "name": "Magenta",
       "app": ["Object_Name"],
       "enabled": [],
-      "writable": [],
-      "accepted": ["Enable", "Event_State", "Total_Record_Count"],
-      "note": "T-VMT-I-B / T-ATR-B. Enable is NOT a stack default - it is genuinely held and served by the stack's Trend Log Multiple engine (BACnetStack_AddTrendLogMultipleObject + AddLoggedObjectToTrendLogMultiple x3 + SetTrendLogTypeToPolled), marked accepted only because property-profile-reference.md's generic table does not know about this host-configuration API. Polls three points every second: Analog Input 1 (Bronze), Analog Value 1 (Diamond) and Analog Output 1 (Chartreuse) Present_Value. This is the example's working, live-verified polled-logging + ReadRange demonstration: Record_Count climbed from 0 to 150+ across several live runs, and ReadRange (RangeByPosition, first=1, count=5) returned real LogMultipleRecord entries. Total_Record_Count (145) is listed and climbs with Record_Count (checked by hand at 64b2cfac5). (The #2050 log flood is fixed.)"
+      "writable": ["Enable", "Record_Count", "Log_Interval"],
+      "accepted": ["Enable", "Stop_When_Full", "Buffer_Size", "Log_Buffer", "Record_Count", "Logging_Type", "Log_Interval", "Event_State", "Total_Record_Count"],
+      "note": "T-VMT-I-B / T-ATR-B. Enable, Stop_When_Full, Buffer_Size, Log_Buffer, Record_Count, Logging_Type and Log_Interval are NOT stack defaults - they are genuinely held and served by the stack's Trend Log Multiple engine (BACnetStack_AddTrendLogMultipleObject + AddLoggedObjectToTrendLogMultiple x3 + SetTrendLogTypeToPolled; read at 4238a39f: Buffer_Size 200, Logging_Type polled, Log_Interval 100, Stop_When_Full FALSE, Record_Count climbing), marked accepted only because the generic property profile does not know about this host-configuration API. Log_Buffer is readable only via ReadRange (a plain ReadProperty is rejected with READ_ACCESS_DENIED). Polls three points every second: Analog Input 1 (Bronze), Analog Value 1 (Diamond) and Analog Output 1 (Chartreuse) Present_Value. This is the example's working, live-verified polled-logging + ReadRange demonstration: Record_Count climbed from 0 to 150+ across several live runs, and ReadRange (RangeByPosition, first=1, count=5) returned real LogMultipleRecord entries. Total_Record_Count (145) is listed and climbs with Record_Count (checked by hand at 64b2cfac5). (The #2050 log flood is fixed.)"
     }
   ]
 }
