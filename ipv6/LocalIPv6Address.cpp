@@ -66,17 +66,27 @@ bool GetLocalIPv6Address(const uint32_t interfaceIndex, LocalIPv6Address* out) {
     }
     for (IP_ADAPTER_ADDRESSES* adapter = (IP_ADAPTER_ADDRESSES*)buffer.data(); adapter != NULL;
          adapter = adapter->Next) {
-        if (adapter->OperStatus != IfOperStatusUp || adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK) {
+        // An adapter that cannot do multicast cannot carry BACnet/IPv6 broadcasts.
+        if (adapter->OperStatus != IfOperStatusUp || adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK ||
+            (adapter->Flags & IP_ADAPTER_NO_MULTICAST) != 0) {
             continue;
         }
         if (interfaceIndex != 0 && adapter->Ipv6IfIndex != interfaceIndex) {
             continue;
         }
-        // A global address if there is one, else the link-local one.
+        // NOTE: without --interface this is simply the first adapter that is up,
+        // which can be a Hyper-V or WSL virtual switch. Name the interface with
+        // --interface when the host has more than one.
+        //
+        // A global address if there is one, else the link-local one. Skipped:
+        // temporary (privacy) addresses, which the host replaces every few hours,
+        // and addresses that are not Preferred (deprecated, or still in
+        // duplicate address detection).
         const IP_ADAPTER_UNICAST_ADDRESS* chosen = NULL;
         for (const IP_ADAPTER_UNICAST_ADDRESS* unicast = adapter->FirstUnicastAddress; unicast != NULL;
              unicast = unicast->Next) {
-            if (unicast->Address.lpSockaddr->sa_family != AF_INET6) {
+            if (unicast->Address.lpSockaddr->sa_family != AF_INET6 || unicast->SuffixOrigin == IpSuffixOriginRandom ||
+                unicast->DadState != IpDadStatePreferred) {
                 continue;
             }
             const uint8_t* candidate = ((const sockaddr_in6*)unicast->Address.lpSockaddr)->sin6_addr.s6_addr;
@@ -91,6 +101,10 @@ bool GetLocalIPv6Address(const uint32_t interfaceIndex, LocalIPv6Address* out) {
         memcpy(out->address, ((const sockaddr_in6*)chosen->Address.lpSockaddr)->sin6_addr.s6_addr, 16);
         out->prefixLength = chosen->OnLinkPrefixLength;
         out->interfaceIndex = adapter->Ipv6IfIndex;
+        // The interface's transmit speed, for Link_Speed. All ones means unknown.
+        if (adapter->TransmitLinkSpeed != 0 && adapter->TransmitLinkSpeed != (ULONG64)-1) {
+            out->linkSpeedBitsPerSecond = (double)adapter->TransmitLinkSpeed;
+        }
         for (const IP_ADAPTER_GATEWAY_ADDRESS_LH* gateway = adapter->FirstGatewayAddress; gateway != NULL;
              gateway = gateway->Next) {
             if (gateway->Address.lpSockaddr->sa_family == AF_INET6) {
@@ -206,6 +220,11 @@ bool GetLocalIPv6Address(const uint32_t interfaceIndex, LocalIPv6Address* out) {
         if (interfaceIndex != 0 && if_nametoindex(entry->ifa_name) != interfaceIndex) {
             continue;
         }
+        // NOTE: getifaddrs() does not say whether an address is temporary
+        // (privacy) or deprecated - that takes netlink (IFA_F_TEMPORARY,
+        // IFA_F_DEPRECATED) on Linux - so they are not skipped here as they are
+        // on Windows. Name the interface with --interface to be sure, and
+        // check the address the device prints at start-up.
         const uint8_t* candidate = ((const struct sockaddr_in6*)entry->ifa_addr)->sin6_addr.s6_addr;
         if (chosen == NULL) {
             chosen = entry;

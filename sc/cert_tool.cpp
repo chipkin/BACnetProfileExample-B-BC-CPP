@@ -92,21 +92,32 @@ std::string BioText(BIO* bio) {
     return text;
 }
 
+// The three PEM writers return "" if OpenSSL fails; the callers check, so an
+// empty file is never written in place of a certificate or key.
 std::string CertPem(X509* cert) {
     BIO* bio = BIO_new(BIO_s_mem());
-    PEM_write_bio_X509(bio, cert);
+    if (bio == NULL || PEM_write_bio_X509(bio, cert) != 1) {
+        BIO_free(bio);
+        return std::string();
+    }
     return BioText(bio);
 }
 
 std::string KeyPem(EVP_PKEY* key) {
     BIO* bio = BIO_new(BIO_s_mem());
-    PEM_write_bio_PrivateKey(bio, key, NULL, NULL, 0, NULL, NULL);
+    if (bio == NULL || PEM_write_bio_PrivateKey(bio, key, NULL, NULL, 0, NULL, NULL) != 1) {
+        BIO_free(bio);
+        return std::string();
+    }
     return BioText(bio);
 }
 
 std::string ReqPem(X509_REQ* req) {
     BIO* bio = BIO_new(BIO_s_mem());
-    PEM_write_bio_X509_REQ(bio, req);
+    if (bio == NULL || PEM_write_bio_X509_REQ(bio, req) != 1) {
+        BIO_free(bio);
+        return std::string();
+    }
     return BioText(bio);
 }
 
@@ -346,6 +357,12 @@ bool ReadCariResponse(const CertLayout::NodeCertPaths& paths, const std::string&
                 *error = "\"" + kv.first + "\" in the zip is not a certificate";
                 return false;
             }
+            // Every issuer is installed as a trusted CA, so it must be one
+            // (basicConstraints CA:TRUE, or an old-style self-signed root).
+            if (X509_check_ca(cert.get()) == 0) {
+                *error = "\"" + kv.first + "\" in the zip is not a CA certificate";
+                return false;
+            }
             issuers.push_back(std::move(cert));
         }
     }
@@ -370,10 +387,24 @@ bool ReadCariResponse(const CertLayout::NodeCertPaths& paths, const std::string&
         return false;
     }
 
+    // NOTE: the second issuer (if any) is trusted as given. Only the first is
+    // checked against this device's certificate; the second is whatever the CA
+    // chose to send (a new root during a CA change-over, say). It is the CA's
+    // word - check its fingerprint, printed at install, out of band.
     out->operationalCertificate = CertPem(operational.get());
     out->issuers.clear();
+    out->issuerFingerprints.clear();
     for (const X509Ptr& issuer : issuers) {
         out->issuers.push_back(CertPem(issuer.get()));
+        out->issuerFingerprints.push_back(Sha256Fingerprint(issuer.get()));
+        if (out->issuers.back().empty()) {
+            *error = "OpenSSL could not write an issuer certificate as PEM";
+            return false;
+        }
+    }
+    if (out->operationalCertificate.empty()) {
+        *error = "OpenSSL could not write this device's certificate as PEM";
+        return false;
     }
     out->subject = NameText(X509_get_subject_name(operational.get()));
     out->issuerSubject = NameText(X509_get_issuer_name(operational.get()));
@@ -422,10 +453,16 @@ RequestResult EnsureNodeRequest(const std::string& certDir, uint32_t deviceInsta
             *message = "not made: could not make the certificate signing request";
             return RequestResult::Failed;
         }
+        const std::string keyPem = KeyPem(key.get());
+        const std::string csrPem = ReqPem(csr.get());
+        if (keyPem.empty() || csrPem.empty()) {
+            *message = "not made: OpenSSL could not write the new key or request as PEM";
+            return RequestResult::Failed;
+        }
         std::error_code ec;
         fs::create_directories(fs::path(paths.certDir) / paths.portFolder, ec);
-        if (!WriteFile(paths.privateKey, KeyPem(key.get()), true) ||
-            !WriteFile(paths.certificateSigningRequest, ReqPem(csr.get()))) {
+        if (!WriteFile(paths.privateKey, keyPem, true) ||
+            !WriteFile(paths.certificateSigningRequest, csrPem)) {
             *message = "not made: could not write the new key and request in \"" + certDir + "\"";
             return RequestResult::Failed;
         }
@@ -462,6 +499,10 @@ bool ImportCariResponse(const std::string& certDir, uint32_t deviceInstance, con
         fprintf(stderr, "Error: %s: %s\n", zipPath.c_str(), error.c_str());
         return false;
     }
+    // NOTE: the three files are overwritten in place, one after the other, not
+    // written to temporary files and renamed. A crash or a full disk part-way
+    // leaves a mix of old and new files; run --import-cari again to fix it.
+    // (The run-time certificate store, cert_store.cpp, does use temp + rename.)
     if (!WriteFile(paths.operationalCertificate, files.operationalCertificate) ||
         !WriteFile(paths.issuerCertificate1, files.issuers[0])) {
         return false;
@@ -474,7 +515,13 @@ bool ImportCariResponse(const std::string& certDir, uint32_t deviceInstance, con
     printf("Installed this device's BACnet/SC certificate from %s (%s):\n", zipPath.c_str(), files.source.c_str());
     printf("  subject      %s\n  issued by    %s\n  expires      %s\n  SHA-256      %s\n", files.subject.c_str(),
            files.issuerSubject.c_str(), files.notAfter.c_str(), files.fingerprint.c_str());
-    printf("  %s\n  %s\n  %s\n", CertLayout::RelativeTo(certDir, paths.operationalCertificate).c_str(),
+    // The CAs this device now trusts. Compare each fingerprint with the one
+    // your Certificate Authority publishes, by a channel other than the zip.
+    for (size_t issuerIndex = 0; issuerIndex < files.issuerFingerprints.size(); ++issuerIndex) {
+        printf("  trusted CA %u SHA-256 %s\n", (unsigned)(issuerIndex + 1), files.issuerFingerprints[issuerIndex].c_str());
+    }
+    printf("  Check the CA fingerprint(s) with your Certificate Authority before you rely on them.\n");
+    printf("  %s\n  %s\n  %s\n",CertLayout::RelativeTo(certDir, paths.operationalCertificate).c_str(),
            CertLayout::RelativeTo(certDir, paths.issuerCertificate1).c_str(),
            CertLayout::RelativeTo(certDir, paths.issuerCertificate2).c_str());
     printf("Restart the device (--datalink sc) to use it.\n");

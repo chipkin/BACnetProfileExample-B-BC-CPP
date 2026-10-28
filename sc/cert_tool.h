@@ -68,7 +68,8 @@ bool NodeRequestZip(const CertLayout::NodeCertPaths& paths, std::string* zipByte
 // What a CARI response holds for this device, checked but not yet installed.
 struct ResponseFiles {
     std::string operationalCertificate;  // PEM: this device's new certificate
-    std::vector<std::string> issuers;    // PEM: 1 or 2 issuer certificates
+    std::vector<std::string> issuers;    // PEM: 1 or 2 issuer certificates (each a CA)
+    std::vector<std::string> issuerFingerprints;  // SHA-256 of each, same order
     std::string source;                  // where the certificate was in the zip
     std::string subject;
     std::string issuerSubject;
@@ -78,7 +79,8 @@ struct ResponseFiles {
 
 // Reads a CARI response zip and checks it is for THIS device: its certificate's
 // public key matches the device's CSR (so a password-protected key is never
-// needed), and one of the zip's issuer certificates signed it. Writes nothing.
+// needed), one of the zip's issuer certificates signed it, and every issuer is
+// a CA certificate. A second issuer is otherwise trusted as given. Writes nothing.
 bool ReadCariResponse(const CertLayout::NodeCertPaths& paths, const std::string& zipBytes, ResponseFiles* out,
                       std::string* error);
 

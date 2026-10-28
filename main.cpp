@@ -203,6 +203,12 @@ static const char* MODEL_NAME = "CAS BACnet Stack Example - B-BC";
 // (no password required). Change this to your device's secret before shipping -
 // it crosses the wire in PLAINTEXT, so treat it as a guard against accidents,
 // not a security boundary.
+//
+// It is EMPTY here on purpose, so a test client can try every service, and the
+// device prints a warning at every start while it is. On BACnet/SC it matters
+// more: ReinitializeDevice ACTIVATE_CHANGES is how a client installs the
+// certificates it wrote to the certificate File objects, so with no password
+// any peer on the hub can replace this device's certificates.
 static const char* DCC_PASSWORD = "";  // "" = no password required
 
 // Firmware_Revision (Device object property 44) reflects the underlying CAS
@@ -511,6 +517,7 @@ static const uint32_t PROPERTY_IDENTIFIER_IPV6_DNS_SERVER = 441;
 static const uint32_t PROPERTY_IDENTIFIER_MAX_INFO_FRAMES = 63;
 static const uint32_t PROPERTY_IDENTIFIER_MAX_MASTER = 64;   // "Max_Manager" in 135-2024
 static const uint32_t PROPERTY_IDENTIFIER_MAX_APDU_LENGTH_ACCEPTED = 62;
+static const uint32_t PROPERTY_IDENTIFIER_NETWORK_NUMBER = 425;
 
 // The largest APDU on MS/TP is 480 octets (the stack's MS/TP Network Port reports
 // APDU_Length 480 by itself). The Device object's Max_APDU_Length_Accepted must
@@ -621,30 +628,39 @@ static bool GetDataLinkPortUnsigned(const uint16_t objectType, const uint32_t ob
 // TRUE) and hands it here only on ReinitializeDevice ACTIVATE_CHANGES (or
 // WARMSTART). Storing it is enough: the stack re-reads both through the Get
 // callback above after every activation and reconfigures the MS/TP engine.
+//
+// DO NOT REFUSE A VALUE HERE. The stack range-checked the write when it arrived
+// (Max_Master 0..127, Max_Info_Frames 1..255) and has no hook for the app to
+// check it then. By the time this runs, CallbackReinitializeDevice has already
+// accepted the request - and for WARMSTART armed the restart - so a refusal now
+// answers the client with an Error while the device restarts anyway, and leaves
+// the value pending to fail every later activation. Accept, and warn instead.
 static bool SetDataLinkPortUnsigned(const uint16_t objectType, const uint32_t objectInstance,
                                     const uint32_t propertyIdentifier, const uint32_t value, uint32_t* errorCode) {
+    (void)errorCode;
     if (!IsDataLinkPort(objectType, objectInstance, DataLink::MSTP)) {
         return false;
     }
     if (propertyIdentifier == PROPERTY_IDENTIFIER_MAX_MASTER) {
-        if (value < g_options.mstpMacAddress || value > 127) {
-            *errorCode = ERROR_CODE_VALUE_OUT_OF_RANGE;
-            return false;
+        g_options.mstpMaxMaster = (uint8_t)(value > 127 ? 127 : value);
+        printf("Network Port %u (Amber): Max_Master is now %u\n", objectInstance, (unsigned)g_options.mstpMaxMaster);
+        if (g_options.mstpMaxMaster < g_options.mstpMacAddress) {
+            printf("Warning: Max_Master %u is below this station's MAC %u: no station will pass this one the "
+                   "token until Max_Master is raised again.\n",
+                   (unsigned)g_options.mstpMaxMaster, (unsigned)g_options.mstpMacAddress);
         }
-        g_options.mstpMaxMaster = (uint8_t)value;
-        printf("Network Port %u (Amber): Max_Master is now %u\n", objectInstance, value);
         return true;
     }
     if (propertyIdentifier == PROPERTY_IDENTIFIER_MAX_INFO_FRAMES) {
-        if (value < 1 || value > 255) {
-            *errorCode = ERROR_CODE_VALUE_OUT_OF_RANGE;
-            return false;
-        }
-        g_options.mstpMaxInfoFrames = (uint8_t)value;
-        printf("Network Port %u (Amber): Max_Info_Frames is now %u\n", objectInstance, value);
+        g_options.mstpMaxInfoFrames = (uint8_t)(value < 1 ? 1 : (value > 255 ? 255 : value));
+        printf("Network Port %u (Amber): Max_Info_Frames is now %u\n", objectInstance,
+               (unsigned)g_options.mstpMaxInfoFrames);
         return true;
     }
-    return false;
+    // Any other pending unsigned value of this port - a client-written
+    // Network_Number, say - is held and served by the stack itself: there is
+    // nothing for the app to store, but returning false would refuse it.
+    return true;
 }
 
 // OCTET STRING: the IPv6 port's address, default gateway and DNS server (16
@@ -1470,6 +1486,13 @@ bool SetPropertyUnsignedInteger(const uint32_t deviceInstance, const uint16_t ob
     // The MS/TP port's Max_Master / Max_Info_Frames, at activation (section 1b).
     if (IsDataLinkPort(objectType, objectInstance, DataLink::MSTP)) {
         return SetDataLinkPortUnsigned(objectType, objectInstance, propertyIdentifier, value, errorCode);
+    }
+    // A client-written Network_Number on the other ports, at activation: the
+    // stack holds and serves it; refusing it here would fail the activation
+    // after ReinitializeDevice already accepted it (see SetDataLinkPortUnsigned).
+    if (objectType == OBJECT_TYPE_NETWORK_PORT && objectInstance == ActiveNetworkPortInstance() &&
+        propertyIdentifier == PROPERTY_IDENTIFIER_NETWORK_NUMBER) {
+        return true;
     }
 #ifdef BBC_WITH_SC
     // A certificate File's File_Size: a client writes 0 to empty the file before
@@ -2745,7 +2768,12 @@ int main(int argc, char** argv) {
             printf("FYI: could not read a local IPv6 address; Network Port IPv6_Address will report ::.\n");
         }
     }
-    if (g_options.dataLink == DataLink::IPv4 || g_options.dataLink == DataLink::IPv6) {
+    if (g_options.dataLink == DataLink::IPv6 && g_ipv6Address.linkSpeedBitsPerSecond > 0.0) {
+        // The speed of the interface the IPv6 address came from (Windows).
+        g_linkSpeedBitsPerSecond = (float)g_ipv6Address.linkSpeedBitsPerSecond;
+    } else if (g_options.dataLink == DataLink::IPv4 || g_options.dataLink == DataLink::IPv6) {
+        // On POSIX the IPv6 port falls back to this too: the IPv4 helper's
+        // primary interface, which may not be the IPv6 one.
         double linkSpeedBitsPerSecond = 0.0;
         if (CASExampleHelper::GetLocalLinkSpeedBitsPerSecond(&linkSpeedBitsPerSecond)) {
             g_linkSpeedBitsPerSecond = (float)linkSpeedBitsPerSecond;
@@ -3410,6 +3438,16 @@ int main(int argc, char** argv) {
 
     printf("FYI: Device %u (\"%s\") ready. Vendor ID %u. Press 'h' for help.\n",
            g_deviceInstance, DEVICE_NAME, VENDOR_IDENTIFIER);
+    // The tutorial ships with no password so every client can try the
+    // DM-DCC-B / DM-RD-B services. Say so, every start: on BACnet/SC that
+    // password is all that stands between any peer on the hub and rewriting
+    // and activating this device's certificate Files.
+    if (DCC_PASSWORD == NULL || DCC_PASSWORD[0] == '\0') {
+        printf("Warning: no DeviceCommunicationControl / ReinitializeDevice password (DCC_PASSWORD in main.cpp "
+               "is empty): any BACnet client can silence or restart this device%s. Set one before using it "
+               "outside a test bench.\n",
+               g_options.dataLink == DataLink::SC ? ", or replace and activate its BACnet/SC certificates" : "");
+    }
 
     // --- Run the stack ------------------------------------------------------
     // BACnetStack_Tick() processes incoming messages and timers. Call it

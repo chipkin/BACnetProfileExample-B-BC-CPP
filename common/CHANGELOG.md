@@ -29,7 +29,9 @@ them is unaffected.
   `Read` that never blocks, and a `Write` that returns when the driver has sent
   the frame (Windows `CreateFile` + `COMMTIMEOUTS` + `FlushFileBuffers`; POSIX
   termios raw mode + `tcdrain`; 76800 baud where the platform defines
-  `B76800`).
+  `B76800`). On POSIX a full driver buffer is waited on with `poll` (up to a
+  second) instead of spinning, and a real read error such as EIO (an adapter
+  unplugged) is printed once.
 
 ## [3.4.0] - 2026-10-15
 

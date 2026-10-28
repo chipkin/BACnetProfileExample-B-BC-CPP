@@ -69,6 +69,47 @@ The default, `ipv4`, is the same device as 1.1.0.
   links Recipient_List starts empty and is written by a client.
 - `common/`: `SimpleSerial` added (see `common/CHANGELOG.md`, [Unreleased]).
 
+### Fixed
+
+Code review of the four-data-link build (#21).
+
+- **A Network Port change no longer fails after ReinitializeDevice accepted
+  it.** The stack applies pending Network Port writes after
+  `CallbackReinitializeDevice` has accepted (and, for WARMSTART, armed the
+  restart). `SetDataLinkPortUnsigned` refused a Max_Master below `--mstp-mac`,
+  and every other unsigned MS/TP port value such as a written Network_Number,
+  so the client got an Error while the device restarted anyway, and the value
+  stayed pending to fail every later activation. Every value the stack
+  accepted at the write is now accepted at activation (a Max_Master below the
+  station's MAC is accepted with a warning), and a written Network_Number on
+  the other ports too.
+- **BACnet/IPv6 address choice** (Windows): adapters that cannot do multicast,
+  temporary (privacy) addresses and addresses that are not Preferred are
+  skipped. POSIX: unchanged, and a comment says so. Link_Speed is the chosen
+  interface's speed on Windows, not the IPv4 helper's.
+- **`--mstp-baud 76800`** is refused at start-up, and left out of `--help`,
+  where termios has no `B76800` (most Linux systems), instead of failing when
+  the port opens.
+- **POSIX serial**: `Write` waits with `poll` instead of spinning on EAGAIN;
+  `Read` prints a real read error (EIO: adapter unplugged) once.
+- `--sc-hub` / `--sc-failover-hub` longer than 255 characters are refused;
+  numeric options with leading white space (`" -1"`) are refused.
+- **BACnet/SC**: `--import-cari` refuses an issuer that is not a CA
+  certificate, and prints the SHA-256 fingerprint of each CA it installs, to be
+  checked out of band. `ScHubConnector::Connect` closes a still-alive earlier
+  attempt to the same hub and ignores its events, so its later error no
+  longer tears down the new connection. OpenSSL PEM writes are checked, so a
+  failure is reported instead of writing an empty file (and a failed
+  `BIO_new` in the GENERATE_CSR_FILE path no longer dereferences NULL).
+  `tools/sign_cari_request.py` no longer gives EC keys keyEncipherment.
+- A start-up warning when `DCC_PASSWORD` is empty (on BACnet/SC it is all that
+  guards the certificate Files).
+- Docs: PICS, `ipv6/README.md`, `docs/objects.json` and README say the stack
+  makes the IPv6 BBMD and foreign-device properties writable, and that as a BBMD
+  this example would not pass its peers' broadcasts on (it gives the stack no
+  destination address). The generated PICS table lists Network Port 3's
+  Max_Master and Max_Info_Frames as writable.
+
 ## [1.1.0] - unreleased
 
 The example is now **Profile-functional** (series glossary): it performs the

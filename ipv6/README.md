@@ -43,5 +43,14 @@ FF02::BAC0 is answered.
 ## BBMD and foreign devices
 
 The pinned stack (`632165847`, cas-bacnet-stack #4612) supports a BACnet/IPv6 BBMD and foreign-device registration,
-configured through the IPv6 Network Port's properties. This example does not configure either, so it reaches devices
-on its own link only.
+configured through the IPv6 Network Port's properties: BACnet_IPv6_Mode, FD_BBMD_Address, FD_Subscription_Lifetime,
+BBMD_Broadcast_Distribution_Table and BBMD_Accept_FD_Registrations are writable on Network Port 2, held by the stack
+and activated by ReinitializeDevice. This example does not configure either, so it reaches devices on its own link
+only - but a client can write those properties.
+
+If you make it a BBMD that way, it is incomplete: the receive callback passes the stack no destination address. A
+BBMD must hand the stack each datagram's real destination (the multicast group it arrived on, or this node's unicast
+address), because that is how the stack tells a peer BBMD's forwarded broadcast from a unicast. Without it the device
+still forwards its own link's broadcasts to its peers and foreign devices, but never passes its peers' broadcasts on
+to its own link. Reading the destination needs `IPV6_PKTINFO` / `recvmsg` (`WSARecvMsg` on Windows) in
+`common/SimpleUDP6.cpp`, which this example does not do. Foreign-device registration with another BBMD does not need it.

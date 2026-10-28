@@ -32,9 +32,14 @@ const size_t MAX_QUEUED_FRAMES = 64;
 // One connection (the stack opens at most two: primary and failover hub).
 // Entries are never erased, so the pointer handed to libwebsockets as the
 // connection's user data stays valid for the life of the process.
+//
+// A second Connect() to the same URI reuses the entry while the earlier
+// attempt's socket may still be alive. `socket` is the CURRENT attempt's: an
+// event from any other socket is a stale attempt's, and is ignored (or closes
+// that socket) instead of touching the current connection's state.
 struct Connection {
     std::string uri;
-    lws* socket = NULL;
+    lws* socket = NULL;         // the current attempt's socket
     bool open = false;          // ESTABLISHED and not yet closed
     bool closeRequested = false;
     std::deque<std::vector<uint8_t>> sendQueue;
@@ -110,6 +115,15 @@ int HubProtocolCallback(lws* socket, lws_callback_reasons reason, void* user, vo
     (void)user;
     Connection* connection = (Connection*)lws_get_opaque_user_data(socket);
     if (connection == NULL || g_reloading) {
+        return 0;
+    }
+    if (socket != connection->socket) {
+        // A superseded attempt (see Connection). If it is up or still talking,
+        // close it; its error or close is not the current connection's.
+        if (reason == LWS_CALLBACK_CLIENT_ESTABLISHED || reason == LWS_CALLBACK_CLIENT_RECEIVE ||
+            reason == LWS_CALLBACK_CLIENT_WRITEABLE) {
+            return -1;
+        }
         return 0;
     }
     switch (reason) {
@@ -279,7 +293,13 @@ bool Connect(const std::string& uri) {
         return false;
     }
     Connection& connection = g_connections[uri];
+    if (connection.socket != NULL) {
+        // An earlier attempt is still alive: have libwebsockets close it. Its
+        // later events no longer match connection.socket and are ignored.
+        lws_set_timeout(connection.socket, PENDING_TIMEOUT_USER_OK, LWS_TO_KILL_ASYNC);
+    }
     connection.uri = uri;
+    connection.socket = NULL;
     connection.open = false;
     connection.closeRequested = false;
     connection.sendQueue.clear();
@@ -300,9 +320,11 @@ bool Connect(const std::string& uri) {
     // but not against the host name (header, rule 6).
     connectInfo.ssl_connection = LCCSCF_USE_SSL | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
     connectInfo.opaque_user_data = &connection;
-    connectInfo.pwsi = &connection.socket;
+    // No pwsi: it would point every attempt at the same connection.socket, and
+    // libwebsockets clears *pwsi when an attempt fails - the new one's too.
     printf("BACnet/SC: connecting to %s\n", uri.c_str());
-    if (lws_client_connect_via_info(&connectInfo) == NULL) {
+    connection.socket = lws_client_connect_via_info(&connectInfo);
+    if (connection.socket == NULL) {
         // A failure that libwebsockets has not already reported through the
         // callback (which queued an Error status) - report it now.
         if (g_statusEvents.empty() || g_statusEvents.back().uri != uri) {

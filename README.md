@@ -170,7 +170,7 @@ Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 | (Un)ConfirmedEventNotification | Sends alarm/event notifications for Diamond to Crimson's recipients (AE-N-I-B). |
 | AcknowledgeAlarm | Accepts an acknowledgement for Diamond's alarm (AE-ACK-B). |
 | GetEventInformation | Reports active events (AE-INFO-B). |
-| DeviceCommunicationControl | Accepts `disable-initiation` / `enable`, optionally password-gated (DM-DCC-B). |
+| DeviceCommunicationControl | Accepts `disable-initiation` / `enable`, optionally password-gated (DM-DCC-B). No password by default (`DCC_PASSWORD` in `main.cpp`); the device warns at start-up while it is empty. |
 | ReinitializeDevice | Accepts COLDSTART/WARMSTART plus the five backup/restore states (DM-RD-B / DM-BR-B), and ACTIVATE_CHANGES (pending Network Port writes; on `--datalink sc`, newly written certificates). |
 | TimeSynchronization / UTCTimeSynchronization | Accepts a time sync request (DM-TS-B / DM-UTC-B). |
 | AtomicReadFile / AtomicWriteFile | Reads and writes File 1 "Ivory" (DM-BR-B). |
@@ -355,11 +355,11 @@ data links see [Data links](#data-links).
 | `--port <n>` | `47808` | `ipv4`, `ipv6`: the UDP port. |
 | `--interface <index>` | every interface | `ipv6`: join the multicast group on this interface only, and take the IPv6 address from it. |
 | `--mstp-port <name>` | (required) | `mstp`: the RS-485 adapter's serial port - `COM3`, `/dev/ttyUSB0`. |
-| `--mstp-baud <n>` | `38400` | `mstp`: 9600, 19200, 38400, 57600, 76800 or 115200. |
+| `--mstp-baud <n>` | `38400` | `mstp`: 9600, 19200, 38400, 57600, 76800 or 115200 (76800 only on Windows, or where termios has `B76800`). |
 | `--mstp-mac <n>` | `1` | `mstp`: this station's address, 0..127, unique on the segment. |
 | `--mstp-max-master <n>` | `127` | `mstp`: the highest station address polled for a new master. |
 | `--mstp-max-info-frames <n>` | `1` | `mstp`: frames sent per token. |
-| `--sc-hub <uri>` | (required) | `sc`: the primary hub, `wss://host:port`. |
+| `--sc-hub <uri>` | (required) | `sc`: the primary hub, `wss://host:port`, at most 255 characters. |
 | `--sc-failover-hub <uri>` | none | `sc`: the failover hub. |
 | `--sc-cert-dir <dir>` | `./certs` | `sc`: this device's certificates and private key. |
 | `--import-cari <zip>` | - | `sc`: install a Certificate Authority's CARI response into `--sc-cert-dir`, then exit. |
@@ -417,9 +417,12 @@ BACnetExampleBBC --datalink ipv6 --interface 12     # one interface (ipconfig: t
 ```
 
 Network Port 2 reports the interface's address (`IPv6_Address`, a global one
-when there is one), `IPv6_Prefix_Length`, `IPv6_Default_Gateway`,
+when there is one; on Windows never a temporary or deprecated one - give
+`--interface` when the host has virtual adapters such as Hyper-V or WSL), `IPv6_Prefix_Length`, `IPv6_Default_Gateway`,
 `IPv6_DNS_Server` and `BACnet_IPv6_UDP_Port`; broadcasts go to the multicast
 group FF02::BAC0 - the start-up I-Am and Who-Is too, as Original-Broadcast-NPDUs.
+The example configures no BBMD or foreign-device registration; a client can, through
+Network Port 2, but as a BBMD it would not pass its peers' broadcasts on.
 [ipv6/README.md](ipv6/README.md) has the details and `tests/ipv6_probe.py`, a
 BACnet/IPv6 client in plain Python to check it from outside.
 
@@ -451,7 +454,8 @@ switches its driver itself is all the hardware it needs.
 - The largest APDU on MS/TP is 480 octets, so the Device's
   `Max_APDU_Length_Accepted` reads 480 in this mode.
 - On Linux, 76800 baud needs a serial driver and C library that define
-  `B76800`; the build leaves that rate out where they do not.
+  `B76800`; where they do not, `--mstp-baud 76800` is refused at start-up
+  and `--help` leaves it out.
 - The RS-485 driver is not switched by the example: USB-to-RS-485 adapters
   switch it themselves. An adapter that needs RTS to enable its driver needs
   a `TransmitEnable` callback (`BACnetStack_RegisterCallbackMSTPTransmitEnable`

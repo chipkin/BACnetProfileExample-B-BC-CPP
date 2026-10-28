@@ -160,10 +160,22 @@ Network Port object instance, and the device has only the active one's:
 | `mstp` | **MS/TP (Clause 9), master node** | 3 "Amber" | 9600, 19200, 38400, 57600, 76800 or 115200 baud; MAC 0..127 |
 | `sc` | **BACnet/SC (Annex AB), node** | 4 "Teal" | primary and failover hub; needs a build with libwebsockets |
 
-BBMD is not supported, Foreign Device registration is not supported (neither
-on BACnet/IP nor on BACnet/IPv6), and Ethernet (Annex H) and PTP are not
-supported. On BACnet/SC the device is a node only: it neither is a hub nor
-accepts direct connections.
+This example configures no BBMD and no Foreign Device registration, on
+BACnet/IP or on BACnet/IPv6. On BACnet/IPv6 the pinned stack makes the
+BBMD and foreign-device properties of Network Port 2 writable
+(BACnet_IPv6_Mode, FD_BBMD_Address, FD_Subscription_Lifetime,
+BBMD_Broadcast_Distribution_Table and BBMD_Accept_FD_Registrations), so a
+client CAN configure them and activate them. Do not rely on that with this
+example: as a BBMD it would forward its own link's broadcasts
+to its peers, but not its peers' broadcasts to its own link, because it does
+not pass each datagram's destination address to the stack (the stack needs it
+to tell a forwarded broadcast from a unicast; see `ipv6/README.md`). Ethernet
+(Annex H) and PTP are not supported. On BACnet/SC the device is a node only:
+it neither is a hub nor accepts direct connections.
+
+On MS/TP, Network Port 3's Max_Master and Max_Info_Frames are writable; a
+written value is pending (Changes_Pending TRUE) until ReinitializeDevice
+ACTIVATE_CHANGES or WARMSTART.
 
 The stack's Network Port object still lists its BACnet/IP properties in
 `Property_List` - including `IP_DNS_Server`, `FD_BBMD_Address` and
@@ -185,8 +197,9 @@ that peer's I-Am, which the example observes with `BACnetStack_RegisterHookIAm`
 
 ## 9. Networking options
 
-None. The device is not a router, not a BBMD, and does not register as a
-foreign device.
+None. The device is not a router, is not configured as a BBMD, and does not
+register as a foreign device (on BACnet/IPv6 a client could configure either
+through Network Port 2 - see section 7 for why a BBMD would be incomplete).
 
 ## 10. Character sets supported
 
@@ -361,7 +374,7 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Changes_Pending | Boolean | app | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
-### Network Port 2 "Cerulean" - --datalink ipv6 only. BACnet/IPv6 (Network_Type ipv6, 9). IPv6_Address, IPv6_Prefix_Length and IPv6_Default_Gateway are the host interface's (ipv6/LocalIPv6Address.cpp: a global address when the interface has one, else its link-local one), read once at start-up; BACnet_IPv6_UDP_Port is --port. IPv6_DNS_Server is the host's first IPv6 DNS server, one element (the interface's on Windows, /etc/resolv.conf's on POSIX); with none the app declines it and the stack reports one unconfigured entry. The stack serves MAC_Address (the 3-octet VMAC, the device instance) and the multicast address. Link_Speed (optional on this port, so enabled at start-up) as for Network Port 1. Checked with tests/ipv6_probe.py
+### Network Port 2 "Cerulean" - --datalink ipv6 only. BACnet/IPv6 (Network_Type ipv6, 9). IPv6_Address, IPv6_Prefix_Length and IPv6_Default_Gateway are the host interface's (ipv6/LocalIPv6Address.cpp: a global address when the interface has one, else its link-local one), read once at start-up; BACnet_IPv6_UDP_Port is --port. IPv6_DNS_Server is the host's first IPv6 DNS server, one element (the interface's on Windows, /etc/resolv.conf's on POSIX); with none the app declines it and the stack reports one unconfigured entry. The stack serves MAC_Address (the 3-octet VMAC, the device instance) and the multicast address. Link_Speed (optional on this port, so enabled at start-up) is that interface's speed on Windows, else as for Network Port 1. The stack also holds BACnet_IPv6_Mode, FD_BBMD_Address, FD_Subscription_Lifetime, BBMD_Broadcast_Distribution_Table and BBMD_Accept_FD_Registrations, writable by a client; this example configures none of them, and as a BBMD it would not pass its peers' broadcasts on (no destination address is given to the stack - see ipv6/README.md). Checked with tests/ipv6_probe.py
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|
@@ -375,6 +388,7 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Protocol_Level | BACnetProtocolLevel | stack | no |
 | Changes_Pending | Boolean | stack | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+| Link_Speed *(optional, enabled)* | (not in the reference) | app | no |
 
 ### Network Port 3 "Amber" - --datalink mstp only. MS/TP (Network_Type mstp, 2). MAC_Address is --mstp-mac (one octet), Link_Speed the baud rate (--mstp-baud; optional on this port, so enabled at start-up), Max_Master and Max_Info_Frames --mstp-max-master / --mstp-max-info-frames - and the stack's MS/TP engine reads its own settings from these same callbacks. Max_Master and Max_Info_Frames are writable as pending changes (Changes_Pending TRUE) that take effect on ReinitializeDevice ACTIVATE_CHANGES. APDU_Length is the stack's 480; the Device's Max_APDU_Length_Accepted reads 480 in this mode
 
@@ -390,6 +404,9 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Protocol_Level | BACnetProtocolLevel | stack | no |
 | Changes_Pending | Boolean | stack | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+| Link_Speed *(optional, enabled)* | (not in the reference) | app | no |
+| Max_Master | (not in the reference) | app | yes |
+| Max_Info_Frames | (not in the reference) | app | yes |
 
 ### Network Port 4 "Teal" - --datalink sc only, and only in a build with BACnet/SC (README 'Building with BACnet/SC'). A BACnet/SC node (Network_Type secure-connect, 11) - sc/ScNode.cpp. The stack holds every BACnet/SC property: the hub URIs (--sc-hub, --sc-failover-hub), the 6-octet VMAC, the hub connection status, and the certificate File references (Files 2-5). SC_Primary_Hub_Connection_Status reads connected once the hub has accepted the device
 
@@ -406,6 +423,8 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Changes_Pending | Boolean | stack | no |
 | Current_Health *(optional, enabled)* | BACnetHealth | stack | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+| SC_Primary_Hub_Connection_Status *(optional, enabled)* | (not in the reference) | stack | no |
+| SC_Failover_Hub_Connection_Status *(optional, enabled)* | (not in the reference) | stack | no |
 
 ### Schedule 1 "Saffron" - SCHED-E-B. Present_Value, Effective_Period, Schedule_Default, List_Of_Object_Property_References, Priority_For_Writing and Status_Flags are NOT stack DEFAULTS - they are genuinely held and served by the stack's Schedule engine (BACnetStack_AddScheduleObject plus the BACnetStack_SetSchedule*/AddSchedule* configuration calls in main.cpp). List_Of_Object_Property_References has TWO entries (each BACnetStack_AddScheduleObjectPropertyReference call appends): a LOCAL one at Analog Output 1 (Chartreuse) Present_Value, and a REMOTE one at a peer device's (default instance 389002, e.g. a locally-built B-SA-CPP) Analog Output 1 Present_Value - the SCHED-E-B / F-EXTWRITE remote fan-out. Both writes are checked: the local one is inherited from B-AAC's SCHED-I-B, and the remote one is the Wire Test tests/sched_e_b_remote_peer.py. A write made before the peer is bound is kept until it binds (cas-bacnet-stack #2343, fixed at 64b2cfac5; checked by hand). One weekly transition (Monday 08:00) and one exception - a calendar reference to Calendar 1 (Cream), whose Date_List holds December 25 - are seeded at start-up; the 's' key (common/'s DemoAdvance) adds a transition for right now so the change can be observed without waiting for the wall clock
 

@@ -28,7 +28,8 @@ The request and response are CARI zips (ANSI/ASHRAE 135-2024 Annex AA.2):
               cert1/issuer/iss-1.pem                      the CA's certificate
               cert1/response-notes.txt
 
-Every csr-*.pem in the request is signed. The certificate keeps the request's
+Every csr-*.pem in the request is signed, for whatever names it asks for - this
+demo CA checks nothing about the requester. The certificate keeps the request's
 subject and subject alternative names; it is ECDSA/SHA-256, valid 825 days,
 with extended key usage clientAuth and serverAuth (a BACnet/SC certificate is
 presented at both ends of a connection, and a node may also accept direct
@@ -48,6 +49,7 @@ from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID
 
 VALID_DAYS = 825
@@ -67,6 +69,9 @@ def sign_request(signing_request: x509.CertificateSigningRequest, ca_certificate
     now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
     serial_number = int.from_bytes(secrets.token_bytes(16), "big") & ((1 << 127) - 1)
     ca_key_identifier = ca_certificate.extensions.get_extension_for_class(x509.SubjectKeyIdentifier).value
+    # keyEncipherment is for RSA key transport; an EC key (what the device
+    # makes: ECDSA P-256) only signs, so it gets digitalSignature alone.
+    is_rsa_key = isinstance(signing_request.public_key(), rsa.RSAPublicKey)
     builder = (x509.CertificateBuilder()
                .subject_name(signing_request.subject)
                .issuer_name(ca_certificate.subject)
@@ -78,7 +83,7 @@ def sign_request(signing_request: x509.CertificateSigningRequest, ca_certificate
                .not_valid_after(now + datetime.timedelta(days=VALID_DAYS))
                .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=False)
                .add_extension(x509.KeyUsage(
-                   digital_signature=True, content_commitment=False, key_encipherment=True,
+                   digital_signature=True, content_commitment=False, key_encipherment=is_rsa_key,
                    data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False,
                    encipher_only=False, decipher_only=False), critical=False)
                .add_extension(x509.ExtendedKeyUsage(
@@ -88,6 +93,8 @@ def sign_request(signing_request: x509.CertificateSigningRequest, ca_certificate
                .add_extension(x509.AuthorityKeyIdentifier.from_issuer_subject_key_identifier(ca_key_identifier),
                               critical=False))
     # Keep the names the device asked for (its subject alternative names).
+    # NOTE: this demo CA signs WHATEVER subject and names the request asks for,
+    # unchecked. A real CA verifies that the requester is entitled to them.
     try:
         requested_names = signing_request.extensions.get_extension_for_class(x509.SubjectAlternativeName)
         builder = builder.add_extension(requested_names.value, critical=False)

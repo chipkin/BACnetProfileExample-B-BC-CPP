@@ -7,10 +7,22 @@
 
 #include "CASExampleHelper.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if !defined(_WIN32)
+#include <termios.h>  // B76800, where the system has it
+#endif
+
+// 76800 baud: Windows takes any rate; on POSIX only where termios defines
+// B76800 (most Linux systems do not). SimpleSerial::Open() refuses it there, so
+// the parser refuses it first, with a clearer message.
+#if defined(_WIN32) || defined(B76800)
+#define BBC_HAS_76800_BAUD 1
+#endif
 
 namespace {
 
@@ -37,7 +49,12 @@ void PrintUsage(const char* appName, const char* appVersion) {
     printf("\n");
     printf("MS/TP (--datalink mstp):\n");
     printf("  --mstp-port <name>      Serial port of the RS-485 adapter (COM3, /dev/ttyUSB0). Required.\n");
+#ifdef BBC_HAS_76800_BAUD
     printf("  --mstp-baud <n>         9600, 19200, 38400 (default), 57600, 76800 or 115200.\n");
+#else
+    printf("  --mstp-baud <n>         9600, 19200, 38400 (default), 57600 or 115200. (76800 is not\n");
+    printf("                          available: this system's termios has no B76800.)\n");
+#endif
     printf("  --mstp-mac <n>          This station's MAC address, 0..127. Default 1. Must be unique\n");
     printf("                          on the segment.\n");
     printf("  --mstp-max-master <n>   Highest master address polled for, 1..127. Default 127.\n");
@@ -68,8 +85,10 @@ void PrintUsage(const char* appName, const char* appVersion) {
 }
 
 // Reads a decimal number in [minimum, maximum]. False if `text` is not one.
+// strtoul skips leading white space - and accepts a sign after it, " -1"
+// wrapping to ULONG_MAX - so anything but a digit first is refused here.
 bool ParseNumber(const char* text, const unsigned long minimum, const unsigned long maximum, unsigned long* value) {
-    if (text == NULL || *text == '\0' || *text == '-' || *text == '+') {
+    if (text == NULL || !isdigit((unsigned char)*text)) {
         return false;
     }
     errno = 0;
@@ -236,6 +255,12 @@ ParseResult ParseCommandLine(const int argc, char** argv, const char* appName, c
                     return Fail("--mstp-baud \"%s\" is not an MS/TP baud rate (9600, 19200, 38400, 57600, 76800 "
                                 "or 115200)%s", value);
                 }
+#ifndef BBC_HAS_76800_BAUD
+                if (number == 76800) {
+                    return Fail("--mstp-baud %s is not available on this system: its termios has no B76800%s",
+                                value);
+                }
+#endif
                 options->mstpBaudRate = (uint32_t)number;
             } else if (strcmp(option, "--mstp-mac") == 0) {
                 if (!ParseNumber(value, 0, 127, &number)) {
@@ -255,6 +280,11 @@ ParseResult ParseCommandLine(const int argc, char** argv, const char* appName, c
             } else if (strcmp(option, "--sc-hub") == 0 || strcmp(option, "--sc-failover-hub") == 0) {
                 if (strncmp(value, "wss://", 6) != 0 || strlen(value) <= 6) {
                     return Fail("%s \"%s\" is not a secure WebSocket URI (wss://host:port)", option, value);
+                }
+                // The start-up I-Am / Who-Is hand the hub URI to the stack with
+                // a one-octet length.
+                if (strlen(value) > 255) {
+                    return Fail("%s is longer than 255 characters%s", option);
                 }
                 (strcmp(option, "--sc-hub") == 0 ? options->scPrimaryHubUri : options->scFailoverHubUri) = value;
             } else if (strcmp(option, "--sc-cert-dir") == 0) {

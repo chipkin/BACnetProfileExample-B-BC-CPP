@@ -58,6 +58,7 @@ public:
 
 private:
     intptr_t m_handle;
+    bool m_readErrorReported;  // POSIX: a read error has been printed once already
     char m_lastError[160];
 };
 

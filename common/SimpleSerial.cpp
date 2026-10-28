@@ -16,12 +16,13 @@
 #else
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <termios.h>
 #include <unistd.h>
 #define SERIAL_INVALID_HANDLE ((intptr_t)-1)
 #endif
 
-SimpleSerial::SimpleSerial() : m_handle(SERIAL_INVALID_HANDLE) {
+SimpleSerial::SimpleSerial() : m_handle(SERIAL_INVALID_HANDLE), m_readErrorReported(false) {
     m_lastError[0] = '\0';
 }
 
@@ -192,6 +193,7 @@ bool SimpleSerial::Open(const char* portName, const uint32_t baudRate) {
     }
     tcflush(fileDescriptor, TCIOFLUSH);
     m_handle = (intptr_t)fileDescriptor;
+    m_readErrorReported = false;
     return true;
 }
 
@@ -207,6 +209,12 @@ size_t SimpleSerial::Read(uint8_t* buffer, const size_t maxLength) {
         return 0;
     }
     const ssize_t bytesRead = read((int)m_handle, buffer, maxLength);
+    if (bytesRead < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR && !m_readErrorReported) {
+        // A real error, such as EIO when a USB adapter is unplugged. Say so once;
+        // it is still returned as "nothing received".
+        printf("Error: serial port read failed: %s (adapter unplugged?)\n", strerror(errno));
+        m_readErrorReported = true;
+    }
     return bytesRead > 0 ? (size_t)bytesRead : 0; // EAGAIN (nothing waiting) is 0 too
 }
 
@@ -219,7 +227,17 @@ bool SimpleSerial::Write(const uint8_t* data, const size_t length) {
         const ssize_t result = write((int)m_handle, data + written, length - written);
         if (result > 0) {
             written += (size_t)result;
-        } else if (result < 0 && errno != EAGAIN && errno != EINTR) {
+        } else if (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            // The driver's buffer is full: wait until it can take more, rather
+            // than spinning. A second with no room is a stuck port.
+            struct pollfd writable;
+            writable.fd = (int)m_handle;
+            writable.events = POLLOUT;
+            writable.revents = 0;
+            if (poll(&writable, 1, 1000) == 0) {
+                return false;
+            }
+        } else if (result < 0 && errno != EINTR) {
             return false;
         }
     }

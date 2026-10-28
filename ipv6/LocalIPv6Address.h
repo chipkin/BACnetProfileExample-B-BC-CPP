@@ -12,8 +12,10 @@
 // IP_Subnet_Mask from CASExampleHelper::GetLocalIPv4().
 //
 // Which address: the interface named by --interface <index>, or else the first
-// interface that is up and is not a loopback. On it, a global address is
-// preferred over a link-local one (fe80::/10), which every IPv6 interface has.
+// interface that is up and is not a loopback (on Windows, one that can do
+// multicast). On it, a global address is preferred over a link-local one
+// (fe80::/10), which every IPv6 interface has. On Windows, temporary (privacy)
+// and non-preferred (deprecated) addresses are skipped; on POSIX they are not.
 // =============================================================================
 
 #include <stdint.h>
@@ -25,6 +27,7 @@ struct LocalIPv6Address {
     bool hasDnsServer;           // true when dnsServer holds the host's first IPv6 DNS server
     uint8_t dnsServer[16];       // Windows: the interface's; POSIX: /etc/resolv.conf's first IPv6 nameserver
     uint32_t interfaceIndex;     // the interface it is on
+    double linkSpeedBitsPerSecond;  // that interface's speed; 0 when unknown (always 0 on POSIX)
 };
 
 // Fills *out. interfaceIndex 0 = choose (see above). False if no interface has

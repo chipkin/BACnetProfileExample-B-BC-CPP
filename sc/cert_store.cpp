@@ -610,14 +610,17 @@ bool GenerateKeyAndCsr(std::string* reason) {
     if (ok) {
         BIO* keyBio = BIO_new(BIO_s_mem());
         BIO* csrBio = BIO_new(BIO_s_mem());
-        ok = PEM_write_bio_PrivateKey(keyBio, key, NULL, NULL, 0, NULL, NULL) == 1 &&
+        ok = keyBio != NULL && csrBio != NULL &&
+             PEM_write_bio_PrivateKey(keyBio, key, NULL, NULL, 0, NULL, NULL) == 1 &&
              PEM_write_bio_X509_REQ(csrBio, request) == 1;
-        char* p = nullptr;
-        long n = BIO_get_mem_data(keyBio, &p);
-        keyPem.assign(p, (size_t)n);
-        n = BIO_get_mem_data(csrBio, &p);
-        csrPem.assign(p, (size_t)n);
-        BIO_free(keyBio);
+        if (ok) {
+            char* p = nullptr;
+            long n = BIO_get_mem_data(keyBio, &p);
+            keyPem.assign(p, (size_t)n);
+            n = BIO_get_mem_data(csrBio, &p);
+            csrPem.assign(p, (size_t)n);
+        }
+        BIO_free(keyBio);  // BIO_free(NULL) is a no-op
         BIO_free(csrBio);
     }
     X509_REQ_free(request);
@@ -655,7 +658,10 @@ bool WriteTrustedIssuerBundle(const std::string& bundlePath, std::string* reason
         if (Read(inst, &bytes) && ParseCertificates(bytes, &certs, &why)) {
             for (X509* c : certs) {
                 BIO* out = BIO_new(BIO_s_mem());
-                PEM_write_bio_X509(out, c);
+                if (out == NULL || PEM_write_bio_X509(out, c) != 1) {
+                    BIO_free(out);
+                    continue;  // left out of the bundle; an empty bundle is reported below
+                }
                 char* p = nullptr;
                 const long n = BIO_get_mem_data(out, &p);
                 const std::string pem(p, (size_t)n);
