@@ -36,7 +36,8 @@ presented at both ends of a connection, and a node may also accept direct
 connections). A private key in the request (key-<name>.pem) is never copied
 into the response.
 
-Needs the "cryptography" package (pip install cryptography).
+Needs the "cryptography" package, version 42 or later
+(pip install "cryptography>=42"); Ubuntu 22.04's python3-cryptography is too old.
 """
 import argparse
 import datetime

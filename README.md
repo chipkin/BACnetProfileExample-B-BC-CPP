@@ -26,7 +26,7 @@ hub). Only one runs at a time - see [Data links](#data-links).
   Statement: every object, every property, and who answers it.
 
 > **Versions:** this document describes **example v1.3.0**, built and verified
-> against **CAS BACnet Stack 6.0.23** (`6.x` @ `STACK_SHA`), at
+> against **CAS BACnet Stack 6.0.23** (`6.x` @ `d9f39406`), at
 > **Protocol_Revision 30**, with the vendored `common/` helper at **v3.5.0**.
 > Running the example prints all three - if what it prints disagrees with this
 > line, trust the program and check `CHANGELOG.md`.

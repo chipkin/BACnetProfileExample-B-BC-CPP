@@ -1,16 +1,17 @@
 # TODO - known gaps (each checked against the pinned stack source and/or the wire, not assumed)
 
-Stack pin: `632165847` (`issues/runbook`, 2026-10-28, reports 6.0.23) since 1.2.0, for the
-BACnet/IPv6 data link and its client broadcasts (#4636); briefly `b79d4b5bb`. Before it: `64b2cfac5` (`6.x`, 2026-10-15), re-checked 2026-10-15 when
-the pin moved from `00aa2d0e` (`issues/runbook`, 6.0.22).
+Stack pin: `d9f39406` (`6.x`, 2026-10-28, reports 6.0.23) since 1.3.0, the promotion that
+carries the BACnet/IPv6 data link, its client broadcasts (#4636) and the MS/TP engine. Before it:
+`632165847` (`issues/runbook`) on the `ipv6` branch, `69b6249f` for release 1.2.0, and
+`64b2cfac5` (`6.x`, 2026-10-15).
 
-This example is **Profile-functional** (series `docs/GLOSSARY.md`) since 1.1.0 (this file is current at release 1.2.0): the Wire
+This example is **Profile-functional** (series `docs/GLOSSARY.md`) since 1.1.0 (this file is current at release 1.3.0): the Wire
 Tests prove it reading a peer (DS-RP-A, DS-RPM-A), acting on the reading, writing the peer
 (DS-WP-A, SCHED-E-B) and handling the peer going silent. No `[KNOWN GAP]` - nothing in this
 example's Profile Function is blocked by the stack at this pin. What is left is this example's
 own scope (bottom of this file).
 
-## 1.2.0 - the four data links (`--datalink`)
+## 1.3.0 - the four data links (`--datalink`)
 
 ### Stack gaps found while adding them (not filed - recorded here)
 
@@ -31,8 +32,32 @@ own scope (bottom of this file).
   the submodule, so `docs/PICS.md` was regenerated against the copy at `64b2cfac5` (the
   previous pin, in the B-SCHUB example's submodule). The generic Network Port and File rows
   it uses did not change.
+- **"Unsupported datatype for callbacks" for Network Port 1's Command_Validation_Result.** At
+  `d9f39406` the stack prints this line when a client reads the property on `ipv4`; the read
+  itself succeeds and the discovery Wire Test passes. Log noise only; not filed yet.
 
-### Checked, and how (Windows 11, 2026-10-28)
+### Checked at `d9f39406` (release 1.3.0, 2026-10-28)
+
+- **Windows 11** (Visual Studio 2026, vcpkg, BACnet/SC built): all ten Wire Test scripts pass
+  (`python tests/run_wire_tests.py`); `tests/ipv6_probe.py` 14/14; MS/TP on COM3 as MAC 12
+  (`--deviceID 389105`), six reads through the router; BACnet/SC 10/10 against the B-SCHUB
+  hub on the same PC (enrolment, then Who-Is, Object_Name, Application_Software_Version 1.3.0,
+  Network Port 4 name, Network_Type 11 and Reliability through the hub), twice.
+- **Linux** (Ubuntu 22.04 in WSL2, g++ 11, distribution libwebsockets 4.0.20): all Wire Tests
+  pass; `tests/ipv6_probe.py` 14/14 on `eth0`; BACnet/SC 10/10 against the same hub on the
+  Windows host, across the WSL NAT. Two build fixes came out of it (CHANGELOG 1.3.0, Fixed):
+  Ubuntu's `LibwebsocketsConfig.cmake` file name, and `LWS_PROTOCOL_LIST_TERM`, which
+  libwebsockets 4.0 does not define. `tools/sign_cari_request.py` needs `cryptography` 42 or
+  later; Ubuntu 22.04's package is older (`pip install "cryptography>=42"`).
+- Issues #15, #16 and #18 of this repository (UUID / date-time log lines, unreadable
+  properties) no longer reproduce at this pin: no such lines, every property reads.
+- **BACnet/SC first connection.** In some earlier runs the same day (Windows, with libwebsockets
+  logging raised) the first connection attempt ended "Closed before conn" and the retry
+  connected about a minute later; once, context creation itself took 51 s. Not reproduced in
+  the four runs above, where the device connected at once. If a device is slow to reach its
+  hub on Windows, look here first.
+
+### Checked, and how (Windows 11, 2026-10-28, on the `ipv6` branch before the merge)
 
 - `ipv4` (the default): `python tests/run_wire_tests.py` - ALL WIRE TESTS PASSED.
 - `ipv6`: `python tests/ipv6_probe.py --target fe80::...%10 --multicast --interface 10` -
@@ -73,9 +98,8 @@ own scope (bottom of this file).
 
 ### Not checked yet
 
-- Linux and macOS builds of `common/SimpleSerial` (POSIX termios), of `ipv6/LocalIPv6Address`
-  (including its `/etc/resolv.conf` DNS server), and of the BACnet/SC build with distribution
-  libwebsockets packages. Only Windows was built and run for 1.2.0.
+- macOS: nothing was built or run there. On Linux, MS/TP through `common/SimpleSerial` was built
+  but not run on a bus (WSL has no serial adapter attached).
 - 76800 baud on Linux: termios has no `B76800` on most systems, so `SimpleSerial` refuses it
   there; a `termios2` / `BOTHER` custom rate would be needed.
 - A USB serial adapter reports a write as done when the USB transfer completes, a little
@@ -121,7 +145,7 @@ own scope (bottom of this file).
 - **Trend Log writable properties** (`Enable`, `Record_Count`, `Log_Interval`) are in the PICS; Wire Test
   `trend_log_write_test.py`.
 
-## Known limitations at 1.2.0
+## Known limitations (since 1.2.0, unchanged at 1.3.0)
 
 None of these is a stack gap; they are this example's design, listed so a support request can quote them.
 

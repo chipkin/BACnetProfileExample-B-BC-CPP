@@ -8,6 +8,11 @@
 #include "ScHubConnector.h"
 
 #include <libwebsockets.h>
+// libwebsockets 4.1 added LWS_PROTOCOL_LIST_TERM; Ubuntu 22.04 ships 4.0, whose
+// lws_protocols has the same seven members.
+#ifndef LWS_PROTOCOL_LIST_TERM
+#define LWS_PROTOCOL_LIST_TERM { NULL, NULL, 0, 0, 0, NULL, 0 }
+#endif
 #include <openssl/ssl.h>
 
 #include <deque>

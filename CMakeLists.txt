@@ -90,7 +90,9 @@ endif()
 # --- BACnet/SC libraries ---------------------------------------------------------
 set(BBC_SC_FOUND OFF)
 if(BBC_SC)
-    find_package(libwebsockets CONFIG QUIET)
+    # vcpkg installs libwebsocketsConfig.cmake; Debian and Ubuntu install
+    # LibwebsocketsConfig.cmake, and Linux file names are case-sensitive.
+    find_package(libwebsockets CONFIG QUIET NAMES libwebsockets Libwebsockets)
     find_package(OpenSSL QUIET)
     find_package(ZLIB QUIET)
     find_package(Threads QUIET)
