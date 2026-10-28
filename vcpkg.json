@@ -1,0 +1,11 @@
+{
+  "name": "bacnet-profile-example-b-bc-cpp",
+  "version-string": "1.3.0",
+  "description": "BACnet Building Controller (B-BC) C++ example - the optional BACnet/SC data link (WebSocket+TLS to a hub)",
+  "dependencies": [
+    "libwebsockets",
+    "openssl",
+    "zlib"
+  ],
+  "builtin-baseline": "04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4"
+}

@@ -10,8 +10,12 @@ silent** - see [The scenario](#the-scenario). Around that it carries the rest of
 the profile: commandable outputs, DeviceCommunicationControl, intrinsic
 alarming with a writable event-recipient list, time synchronisation,
 ReinitializeDevice, Backup and Restore, and trending (Trend Log, Trend Log
-Multiple, and ReadRange). It listens on **BACnet/IP (UDP 47808)** and claims
-only B-BC.
+Multiple, and ReadRange). It claims only B-BC.
+
+**One executable, four data links**, chosen when you start it:
+`--datalink ipv4` (BACnet/IP on UDP 47808, the default), `ipv6` (BACnet/IPv6),
+`mstp` (MS/TP on an RS-485 adapter) or `sc` (a BACnet/SC node connecting to a
+hub). Only one runs at a time - see [Data links](#data-links).
 
 **[Download a prebuilt binary](https://github.com/chipkin/BACnetProfileExample-B-BC-CPP/releases)**
 (Windows and Linux x64) - or build it yourself, see [Build](#build) below.
@@ -21,8 +25,8 @@ only B-BC.
 - **[docs/PICS.md](docs/PICS.md)** - the Protocol Implementation Conformance
   Statement: every object, every property, and who answers it.
 
-> **Versions:** this document describes **example v1.2.0**, built and verified
-> against **CAS BACnet Stack 6.0.23** (`6.x` @ `69b6249f`), at
+> **Versions:** this document describes **example v1.3.0**, built and verified
+> against **CAS BACnet Stack 6.0.23** (`6.x` @ `d9f39406`), at
 > **Protocol_Revision 30**, with the vendored `common/` helper at **v3.5.0**.
 > Running the example prints all three - if what it prints disagrees with this
 > line, trust the program and check `CHANGELOG.md`.
@@ -113,10 +117,14 @@ Binary Output 1          "Fuchsia"     (active / inactive; WRITABLE, commandable
 Multi-state Output 1     "Indigo"      (state 1..3; WRITABLE, commandable)
 Analog Value 1           "Diamond"     (REAL, read from peer 389002's Analog Input 1; OutOfRange alarm; Reliability)
 Notification Class 1     "Crimson"     (routes Diamond's alarms; Recipient_List WRITABLE)
-Network Port 1           "Vermilion"   (BACnet/IP - required)
+Network Port 1           "Vermilion"   (BACnet/IP, --datalink ipv4 - the default)
+  or Network Port 2      "Cerulean"    (BACnet/IPv6, --datalink ipv6)
+  or Network Port 3      "Amber"       (MS/TP, --datalink mstp)
+  or Network Port 4      "Teal"        (BACnet/SC, --datalink sc)
 Schedule 1               "Saffron"     (drives Chartreuse locally AND a remote peer - SCHED-E-B)
 Calendar 1               "Cream"       (stack-held Date_List, WRITABLE; drives Saffron's exception)
 File 1                   "Ivory"       (backup/restore payload - DM-BR-B)
+File 2..5                              (--datalink sc only: the BACnet/SC certificates)
 Trend Log 1              "Lilac"       (polls Bronze)
 Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 ```
@@ -162,8 +170,8 @@ Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 | (Un)ConfirmedEventNotification | Sends alarm/event notifications for Diamond to Crimson's recipients (AE-N-I-B). |
 | AcknowledgeAlarm | Accepts an acknowledgement for Diamond's alarm (AE-ACK-B). |
 | GetEventInformation | Reports active events (AE-INFO-B). |
-| DeviceCommunicationControl | Accepts `disable-initiation` / `enable`, optionally password-gated (DM-DCC-B). |
-| ReinitializeDevice | Accepts COLDSTART/WARMSTART plus the five backup/restore states (DM-RD-B / DM-BR-B). |
+| DeviceCommunicationControl | Accepts `disable-initiation` / `enable`, optionally password-gated (DM-DCC-B). No password by default (`DCC_PASSWORD` in `main.cpp`); the device warns at start-up while it is empty. |
+| ReinitializeDevice | Accepts COLDSTART/WARMSTART plus the five backup/restore states (DM-RD-B / DM-BR-B), and ACTIVATE_CHANGES (pending Network Port writes; on `--datalink sc`, newly written certificates). |
 | TimeSynchronization / UTCTimeSynchronization | Accepts a time sync request (DM-TS-B / DM-UTC-B). |
 | AtomicReadFile / AtomicWriteFile | Reads and writes File 1 "Ivory" (DM-BR-B). |
 | ReadRange | Retrieves `Log_Buffer` from a Trend Log / Trend Log Multiple (T-ATR-B). A plain ReadProperty of `Log_Buffer` is rejected. |
@@ -181,10 +189,11 @@ Trend Log Multiple 1     "Magenta"     (polls Bronze/Diamond/Chartreuse)
 | Multi-state Output | 1 | Indigo |
 | Analog Value | 1 | Diamond |
 | Notification Class | 1 | Crimson |
-| Network Port | 1 | Vermilion |
+| Network Port | 1, 2, 3 or 4 | Vermilion (BACnet/IP), Cerulean (BACnet/IPv6), Amber (MS/TP) or Teal (BACnet/SC) - the active data link's only |
 | Schedule | 1 | Saffron |
 | Calendar | 1 | Cream |
 | File | 1 | Ivory |
+| File | 2, 3, 4, 5 | `--datalink sc` only: Operational certificate, Issuer certificate 1 and 2, Certificate signing request |
 | Trend Log | 1 | Lilac |
 | Trend Log Multiple | 1 | Magenta |
 
@@ -213,7 +222,16 @@ gates.
 This is a **self-contained** project. It ships:
 
 - `main.cpp` - the example device.
-- `common/` - the shared helper (UDP, callbacks, CLI, keyboard) vendored in.
+- `command_line.cpp` - `--datalink` and every other option, and `--help`.
+- `ipv6/` - the host's IPv6 address for the IPv6 Network Port, and
+  [ipv6/README.md](ipv6/README.md).
+- `mstp/` - the stack's MS/TP engine on a serial port (`MstpDataLink`).
+- `sc/` - the BACnet/SC node: the hub connection (libwebsockets), the
+  certificate files and the CARI request/response.
+- `common/` - the shared helper (UDP, IPv6 UDP, serial port, callbacks,
+  keyboard) vendored in.
+- `tools/sign_cari_request.py` - a TEST Certificate Authority step for trying
+  BACnet/SC on a bench.
 - `CMakeLists.txt` - the build, the same on Windows, Linux, and macOS.
 - `docs/PICS.md` - the conformance statement.
 - `tests/` - the Wire Tests (see [Wire Tests](#wire-tests)), and `wiretest/`, the
@@ -263,6 +281,32 @@ first - the build needs the stack submodule.
 If your CAS BACnet Stack lives somewhere other than the bundled submodule, point
 CMake at it: `cmake -B build -S . -D CAS_STACK_DIR=/path/to/cas-bacnet-stack`.
 
+BACnet/IP, BACnet/IPv6 and MS/TP need nothing else. BACnet/SC is optional:
+see the next section.
+
+### Building with BACnet/SC
+
+BACnet/SC needs three libraries: **libwebsockets** (the TLS WebSocket to the
+hub), **OpenSSL** and **zlib** (the certificate tools). CMake looks for them
+and builds `--datalink sc` when it finds all three; when it does not, it says
+so and builds the other three data links, and `--datalink sc` then tells you
+how to rebuild. The configure step prints which one happened:
+
+```
+-- B-BC: BACnet/SC is built (libwebsockets, OpenSSL, zlib found)
+```
+
+- **Windows** - with vcpkg. Visual Studio ships one: run the same two commands
+  from a *Developer PowerShell for VS* (which sets `VCPKG_ROOT`), and CMake
+  installs [`vcpkg.json`](vcpkg.json)'s libraries into the build folder on the
+  first configure (a few minutes, once). They are linked statically
+  (`x64-windows-static`), so the executable needs no DLLs.
+- **Linux** - `sudo apt install libwebsockets-dev libssl-dev zlib1g-dev`, then
+  the same two commands.
+
+`-D BBC_SC=OFF` leaves BACnet/SC out on purpose, even when the libraries are
+there.
+
 ## Run
 
 ```bash
@@ -276,21 +320,25 @@ CMake at it: `cmake -B build -S . -D CAS_STACK_DIR=/path/to/cas-bacnet-stack`.
 Expected output:
 
 ```
-BACnet B-BC (Building Controller) Example - C++ v1.2.0
+BACnet B-BC (Building Controller) Example - C++ v1.3.0
 CAS BACnet Stack version: 6.0.23.0
 Common helper (common/) version: 3.5.0
+FYI: Data link: BACnet/IP (Network Port 1). Run with --help for the others.
 FYI: Listening for BACnet/IP on UDP port 47808 (Network Port 1).
-TX 21 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1)
+TX 21 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1) - Unconfirmed: I-Am
+TX 8 bytes to 192.168.3.255:47808 (broadcast) (Network Port 1) - Unconfirmed: Who-Is
 FYI: Device 389005 ("Chipkin Example B-BC") ready. Vendor ID 389. Press 'h' for help.
 ```
 
-The `TX` line is the start-up I-Am the device broadcasts to announce itself, to
+The `TX` lines are the start-up I-Am the device broadcasts to announce itself, and
+its Who-Is, to
 the **local subnet broadcast** address (computed from the Network Port's
 interface). As clients talk to the device you'll see `RX ... bytes from ...`
 and `TX ... bytes to ...` lines showing the traffic.
 
 The device listens on UDP **47808** (BACnet/IP). Allow that port through your
-firewall. To use a different port, pass `--port` (see below).
+firewall. To use a different port, pass `--port` (see below). For the other
+data links see [Data links](#data-links).
 
 > **A few red `Error:` lines at start-up are expected and are not your bug** -
 > it is the stack's own debug logging of the device hearing its own broadcast
@@ -302,12 +350,26 @@ firewall. To use a different port, pass `--port` (see below).
 
 | Option | Default | Meaning |
 |--------|---------|---------|
-| `--port <n>` | `47808` | UDP port to listen on (BACnet/IP). |
+| `--datalink <name>` | `ipv4` | `ipv4` (BACnet/IP), `ipv6` (BACnet/IPv6), `mstp` (MS/TP) or `sc` (BACnet/SC). |
 | `--deviceID <n>` | `389005` | The device's BACnet instance number (BACnet requires this to be configurable). |
 | `--deviceName <text>` | `Chipkin Example B-BC` | The Device object's `Object_Name`, 1..255 bytes, no control characters. It must be unique across the BACnet internetwork, so give every unit its own (BACnet requires it to be configurable, like the instance). An invalid value prints a warning and keeps the default. |
-| `--xml` | off | Print every received and sent BACnet message as an indented XML block instead of a one-line summary (very verbose; for protocol debugging). |
-| `--help`, `-h` | - | Show usage and exit. |
+| `--port <n>` | `47808` | `ipv4`, `ipv6`: the UDP port. |
+| `--interface <index>` | every interface | `ipv6`: join the multicast group on this interface only, and take the IPv6 address from it. |
+| `--mstp-port <name>` | (required) | `mstp`: the RS-485 adapter's serial port - `COM3`, `/dev/ttyUSB0`. |
+| `--mstp-baud <n>` | `38400` | `mstp`: 9600, 19200, 38400, 57600, 76800 or 115200 (76800 only on Windows, or where termios has `B76800`). |
+| `--mstp-mac <n>` | `1` | `mstp`: this station's address, 0..127, unique on the segment. |
+| `--mstp-max-master <n>` | `127` | `mstp`: the highest station address polled for a new master. |
+| `--mstp-max-info-frames <n>` | `1` | `mstp`: frames sent per token. |
+| `--sc-hub <uri>` | (required) | `sc`: the primary hub, `wss://host:port`, at most 255 characters. |
+| `--sc-failover-hub <uri>` | none | `sc`: the failover hub. |
+| `--sc-cert-dir <dir>` | `./certs` | `sc`: this device's certificates and private key. |
+| `--import-cari <zip>` | - | `sc`: install a Certificate Authority's CARI response into `--sc-cert-dir`, then exit. |
+| `--xml` | off | Print every frame as XML instead of one line. |
+| `--help`, `-h` | - | Show usage (every option) and exit. |
 | `--version` | - | Print the example, stack, and `common/` helper versions, then exit. |
+
+An option for a data link that is not the one chosen (say `--mstp-baud` with
+`--datalink ipv4`) is an error, not silently ignored.
 
 ### Interactive commands
 
@@ -320,6 +382,137 @@ While the example runs, these keys are available:
 | up arrow | Increase Analog Input 1 (`Bronze`) by 1.1. |
 | down arrow | Decrease Analog Input 1 (`Bronze`) by 1.1. |
 | `s` | Add a Weekly_Schedule transition for Schedule 1 (`Saffron`) right now, so it can be observed without waiting for the wall clock. |
+| `m` | `--datalink mstp`: print the MS/TP counters (frames, tokens, errors, whether the station is in the token ring). |
+
+## Data links
+
+The device runs on **one data link at a time**, chosen with `--datalink`.
+Everything above it - the objects, the services, the alarms, the schedule -
+is the same on all four. Each data link has its **own** Network Port object
+instance, and the device has only the active one's: a client that remembers
+"Network Port 1 is the BACnet/IP port" never finds an MS/TP port there after
+a restart.
+
+| `--datalink` | Network Port | Network_Type | Address the device uses |
+|---|---|---|---|
+| `ipv4` (default) | 1 "Vermilion" | ipv4 (5) | the host's IPv4 address and `--port` |
+| `ipv6` | 2 "Cerulean" | ipv6 (9) | the host's IPv6 address and `--port`; the 3-octet VMAC is the device instance |
+| `mstp` | 3 "Amber" | mstp (2) | `--mstp-mac` on the RS-485 segment |
+| `sc` | 4 "Teal" | secure-connect (11) | a 6-octet VMAC the stack picks; every message goes through the hub |
+
+Reading the peer device (section 2e, DS-RP-A / DS-RPM-A) works on `ipv4` and
+`ipv6` only: its replies are decoded on the UDP receive path, which MS/TP
+and BACnet/SC do not go through here (see [TODO.md](TODO.md)). The rest of
+the profile is the same on every data link.
+
+### BACnet/IP (`--datalink ipv4`)
+
+The default, and unchanged from earlier versions: `BACnetExampleBBC` alone is
+the same device as before 1.2.0.
+
+### BACnet/IPv6 (`--datalink ipv6`)
+
+```bash
+BACnetExampleBBC --datalink ipv6                    # multicast group on every interface
+BACnetExampleBBC --datalink ipv6 --interface 12     # one interface (ipconfig: the %12)
+```
+
+Network Port 2 reports the interface's address (`IPv6_Address`, a global one
+when there is one; on Windows never a temporary or deprecated one - give
+`--interface` when the host has virtual adapters such as Hyper-V or WSL), `IPv6_Prefix_Length`, `IPv6_Default_Gateway`,
+`IPv6_DNS_Server` and `BACnet_IPv6_UDP_Port`; broadcasts go to the multicast
+group FF02::BAC0 - the start-up I-Am and Who-Is too, as Original-Broadcast-NPDUs.
+The example configures no BBMD or foreign-device registration; a client can, through
+Network Port 2, but as a BBMD it would not pass its peers' broadcasts on.
+[ipv6/README.md](ipv6/README.md) has the details and `tests/ipv6_probe.py`, a
+BACnet/IPv6 client in plain Python to check it from outside.
+
+### MS/TP (`--datalink mstp`)
+
+```bash
+BACnetExampleBBC --datalink mstp --mstp-port COM3 --mstp-baud 38400 --mstp-mac 12
+BACnetExampleBBC --datalink mstp --mstp-port /dev/ttyUSB0 --mstp-mac 12
+```
+
+The stack runs MS/TP itself - the token, Poll For Master, the frame timers -
+and the example only moves bytes between it and the serial port
+([`mstp/MstpDataLink.cpp`](mstp/MstpDataLink.cpp), on
+[`common/SimpleSerial`](common/SimpleSerial.h)). A USB-to-RS-485 adapter that
+switches its driver itself is all the hardware it needs.
+
+- Every station on the segment must use the **same baud rate**, and a **MAC
+  address no other station uses**. The device reports both on Network Port 3
+  (`Link_Speed`, `MAC_Address`) with `Max_Master` and `Max_Info_Frames`.
+  `Max_Master` and `Max_Info_Frames` are writable; like every Network Port
+  setting the write is *pending* until ReinitializeDevice `ACTIVATE_CHANGES`.
+- The start-up I-Am and Who-Is go out once the station has joined the token
+  ring. The Who-Is is global, so devices behind an MS/TP to BACnet/IP router
+  answer too.
+- The `m` key prints the engine's counters. They are also printed when the
+  station joins or leaves the token ring, a minute after it joins, and every
+  10 s while it has not found the ring. Frames received but no token
+  usually means a wrong baud rate; nothing received at all, wiring (swap A/B).
+- The largest APDU on MS/TP is 480 octets, so the Device's
+  `Max_APDU_Length_Accepted` reads 480 in this mode.
+- On Linux, 76800 baud needs a serial driver and C library that define
+  `B76800`; where they do not, `--mstp-baud 76800` is refused at start-up
+  and `--help` leaves it out.
+- The RS-485 driver is not switched by the example: USB-to-RS-485 adapters
+  switch it themselves. An adapter that needs RTS to enable its driver needs
+  a `TransmitEnable` callback (`BACnetStack_RegisterCallbackMSTPTransmitEnable`
+  in the stack's header) that this example does not register.
+- A write is "sent" when the serial driver says so. For a USB adapter that is
+  when the USB transfer completes, which can be slightly before the last stop
+  bit leaves the adapter (see [TODO.md](TODO.md)).
+
+### BACnet/SC (`--datalink sc`)
+
+The device is a BACnet/SC **node**: it opens a TLS WebSocket to a **hub**
+(`--sc-hub`, and optionally `--sc-failover-hub`) and every message goes
+through it. It needs a certificate signed by a Certificate Authority the hub
+trusts, which it gets the way the B-SCHUB example's hub does - a CARI
+request and response (135-2024 Annex AA.2):
+
+1. **First start** - no certificate yet. The device makes a private key and a
+   certificate signing request, writes `certs/node-cari-request.zip`, prints
+   what to do next and stops:
+
+   ```bash
+   BACnetExampleBBC --datalink sc --sc-hub wss://192.168.1.20:4443
+   ```
+
+2. **Sign it** - send the zip to your Certificate Authority (the Chipkin
+   BACnet SC Certificate Authority, BACnet International's BACCARI, or your
+   own). To try it on a bench, `tools/sign_cari_request.py` plays a TEST CA
+   with the B-SCHUB example's demo CA (its key is public - test networks
+   only):
+
+   ```bash
+   python tools/sign_cari_request.py certs/node-cari-request.zip \
+       --ca-cert ../BACnetProfileExample-B-SCHUB-CPP/certs/ca/ca-cert.pem \
+       --ca-key  ../BACnetProfileExample-B-SCHUB-CPP/certs/ca/ca-key.pem \
+       --out node-cari-response.zip
+   ```
+
+3. **Import the response**, then start again:
+
+   ```bash
+   BACnetExampleBBC --datalink sc --import-cari node-cari-response.zip
+   BACnetExampleBBC --datalink sc --sc-hub wss://192.168.1.20:4443
+   ```
+
+Network Port 4 then reports the connection: `SC_Primary_Hub_Connection_Status`
+reads `connected` once the hub has accepted the device, and the I-Am and
+Who-Is go out through the hub. The certificates are also File objects 2 to 5
+(the operational certificate, two issuer certificates and the signing
+request), so a client can replace them over BACnet: AtomicWriteFile the new
+certificate, then ReinitializeDevice `ACTIVATE_CHANGES` - the example checks
+the new set before using it and refuses one that would leave it unable to
+connect. Network Port Command `GENERATE_CSR_FILE` makes a new key and request.
+
+Keep `--sc-cert-dir` private: it holds the device's private key. The hub's
+host name is not checked against its certificate (an IP-addressed hub on a
+bench rarely has one that matches), but its certificate chain is.
 
 ## Verify
 

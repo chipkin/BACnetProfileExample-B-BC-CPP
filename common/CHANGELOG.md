@@ -12,6 +12,27 @@ entry here, and must then be re-copied into **every** example in the series.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the folder adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Added in the B-BC example (`BACnetProfileExample-B-BC-CPP`, branch `ipv6`) and
+not yet copied to the rest of the series; `COMMON_VERSION` is not bumped yet.
+Both files are new and nothing else in `common/` changed, so an example without
+them is unaffected.
+
+### Added
+
+- **`SimpleUDP6`** - a BACnet/IPv6 (Annex U) UDP socket: binds `[::]:port`,
+  joins the multicast group FF02::BAC0 on every IPv6 interface that is up (or
+  one), `Send` / `SendMulticast` / `Receive` with 16-octet addresses, and
+  remembers which interface each link-local peer was heard on.
+- **`SimpleSerial`** - a serial port for MS/TP: 8N1 at a given baud rate, a
+  `Read` that never blocks, and a `Write` that returns when the driver has sent
+  the frame (Windows `CreateFile` + `COMMTIMEOUTS` + `FlushFileBuffers`; POSIX
+  termios raw mode + `tcdrain`; 76800 baud where the platform defines
+  `B76800`). On POSIX a full driver buffer is waited on with `poll` (up to a
+  second) instead of spinning, and a real read error such as EIO (an adapter
+  unplugged) is printed once.
+
 ## [3.5.0] - unreleased
 
 ### Added

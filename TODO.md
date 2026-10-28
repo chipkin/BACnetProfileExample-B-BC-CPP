@@ -1,17 +1,126 @@
 # TODO - known gaps (each checked against the pinned stack source and/or the wire, not assumed)
 
-Stack pin: `69b6249f` (`6.x`, 2026-10-25, reports 6.0.23). Re-checked 2026-10-26 when the pin
-moved from `4238a39f`: clean build (0 warnings), every Wire Test passes, segmentation both.
-Before that, `4238a39f` (2026-10-23) was re-checked 2026-10-24 when the pin moved from
-`64b2cfac5`: clean build (0 warnings), every Wire Test passes, every listed property
-reads, segmentation both. Before that, `64b2cfac5` (2026-10-15) moved it from `00aa2d0e`
-(`issues/runbook`, 6.0.22), when the stack-held Calendars this example needed (#1758) reached `6.x`.
+Stack pin: `d9f39406` (`6.x`, 2026-10-28, reports 6.0.23) since 1.3.0, the promotion that
+carries the BACnet/IPv6 data link, its client broadcasts (#4636) and the MS/TP engine. Before it:
+`632165847` (`issues/runbook`) on the `ipv6` branch, `69b6249f` for release 1.2.0, and
+`64b2cfac5` (`6.x`, 2026-10-15).
 
-This example is **Profile-functional** (series `docs/GLOSSARY.md`) since 1.1.0 (this file is current at release 1.2.0): the Wire
+This example is **Profile-functional** (series `docs/GLOSSARY.md`) since 1.1.0 (this file is current at release 1.3.0): the Wire
 Tests prove it reading a peer (DS-RP-A, DS-RPM-A), acting on the reading, writing the peer
 (DS-WP-A, SCHED-E-B) and handling the peer going silent. No `[KNOWN GAP]` - nothing in this
 example's Profile Function is blocked by the stack at this pin. What is left is this example's
 own scope (bottom of this file).
+
+## 1.3.0 - the four data links (`--datalink`)
+
+### Stack gaps found while adding them (not filed - recorded here)
+
+- **No way to see a reply's value on MS/TP or BACnet/SC.** Section 2e reads the peer by
+  decoding the ReadProperty-ACK in the receive callback, because the stack has no hook that
+  hands the application a confirmed-service ACK. On BACnet/IP and BACnet/IPv6 the whole
+  datagram passes through that callback; on MS/TP the stack's byte-mode engine does the
+  framing, so the application never sees the APDU, and on BACnet/SC it arrives inside the
+  hub's WebSocket frame. So DS-RP-A / DS-RPM-A run on `ipv4` and `ipv6` only. A hook that
+  delivers a ReadProperty / ReadPropertyMultiple ACK (decoded, or as APDU octets) would make
+  section 2e data-link independent.
+- **`BACNET_NETWORK_PORT_DEFAULT` is no help with several data links.** With more than one
+  data link compiled in (the default full build), the default port instance does not name
+  the MS/TP port; this example always names its Network Port instance explicitly.
+- **`docs/property-profile-reference.md` is no longer in the stack checkout** at `b79d4b5bb`
+  or `632165847`
+  (it became generated output). The series' `tools/gen-objects-properties.py` reads it from
+  the submodule, so `docs/PICS.md` was regenerated against the copy at `64b2cfac5` (the
+  previous pin, in the B-SCHUB example's submodule). The generic Network Port and File rows
+  it uses did not change.
+- **"Unsupported datatype for callbacks" for Network Port 1's Command_Validation_Result.** At
+  `d9f39406` the stack prints this line when a client reads the property on `ipv4`; the read
+  itself succeeds and the discovery Wire Test passes. Log noise only; not filed yet.
+
+### Checked at `d9f39406` (release 1.3.0, 2026-10-28)
+
+- **Windows 11** (Visual Studio 2026, vcpkg, BACnet/SC built): all ten Wire Test scripts pass
+  (`python tests/run_wire_tests.py`); `tests/ipv6_probe.py` 14/14; MS/TP on COM3 as MAC 12
+  (`--deviceID 389105`), six reads through the router; BACnet/SC 10/10 against the B-SCHUB
+  hub on the same PC (enrolment, then Who-Is, Object_Name, Application_Software_Version 1.3.0,
+  Network Port 4 name, Network_Type 11 and Reliability through the hub), twice.
+- **Linux** (Ubuntu 22.04 in WSL2, g++ 11, distribution libwebsockets 4.0.20): all Wire Tests
+  pass; `tests/ipv6_probe.py` 14/14 on `eth0`; BACnet/SC 10/10 against the same hub on the
+  Windows host, across the WSL NAT. Two build fixes came out of it (CHANGELOG 1.3.0, Fixed):
+  Ubuntu's `LibwebsocketsConfig.cmake` file name, and `LWS_PROTOCOL_LIST_TERM`, which
+  libwebsockets 4.0 does not define. `tools/sign_cari_request.py` needs `cryptography` 42 or
+  later; Ubuntu 22.04's package is older (`pip install "cryptography>=42"`).
+- Issues #15, #16 and #18 of this repository (UUID / date-time log lines, unreadable
+  properties) no longer reproduce at this pin: no such lines, every property reads.
+- **BACnet/SC first connection.** In some earlier runs the same day (Windows, with libwebsockets
+  logging raised) the first connection attempt ended "Closed before conn" and the retry
+  connected about a minute later; once, context creation itself took 51 s. Not reproduced in
+  the four runs above, where the device connected at once. If a device is slow to reach its
+  hub on Windows, look here first.
+
+### Checked, and how (Windows 11, 2026-10-28, on the `ipv6` branch before the merge)
+
+- `ipv4` (the default): `python tests/run_wire_tests.py` - ALL WIRE TESTS PASSED.
+- `ipv6`: `python tests/ipv6_probe.py --target fe80::...%10 --multicast --interface 10` -
+  14/14, including Network Port 2 Network_Type 9, MAC_Address = the VMAC, the UDP port, the
+  16-octet IPv6_Address, and the multicast Address-Resolution. By hand: IPv6_Prefix_Length 64,
+  IPv6_Default_Gateway, IPv6_DNS_Server (the host's, as `ipconfig /all` lists it),
+  BACnet_IPv6_Multicast_Address FF02::BAC0 port 47808, APDU_Length 1476, Device
+  Max_APDU_Length_Accepted 1476. At `632165847`, a capture on the Ethernet interface (tshark)
+  showed the start-up I-Am and Who-Is leave as Original-Broadcast-NPDUs (BVLC 82 02, source
+  VMAC 05EF8D) to [FF02::BAC0]:47808.
+
+### Resolved during 1.2.0
+
+- **No application broadcast on BACnet/IPv6** (found at `b79d4b5bb`): `BACnetStack_SendIAm` /
+  `SendWhoIs` refused a call with no connection string, and with one the IPv6 data link sent a
+  unicast, so the example could not announce itself on `--datalink ipv6`. Fixed by
+  cas-bacnet-stack #4636 (`632165847`): with `broadcast` true and any 18-octet connection
+  string the message goes out as an Original-Broadcast-NPDU, handed to the host with no
+  connection string.
+- `sc`: against the B-SCHUB example's hub on this PC (`wss://127.0.0.1:4443/`). First start
+  made `certs/node-cari-request.zip`; `tools/sign_cari_request.py` signed it with B-SCHUB's
+  demo CA; `--import-cari` installed it; the device connected and sent I-Am / Who-Is. Read
+  through the hub with B-SCHUB's Python BACnet/SC client: Network Port 4 "Teal", Network_Type
+  11, SC_Primary_Hub_URI, SC_Primary_Hub_Connection_Status connection-state 1 (connected) with
+  its connect timestamp, SC_Hub_Connector_State 1 (connected to primary), the certificate File
+  references 2 / 3, 4 / 5, and Files 2-5 (name, type, size, Read_Only, Modification_Date).
+- `mstp`: on a USB-to-RS-485 adapter (CP210x, COM3) wired to a live segment with an MS/TP
+  to BACnet/IP router. A passive listen first found the segment at 38400 baud with stations
+  0 and 10 passing the token; the example ran as MAC 12 (`--deviceID 389105`: station 10
+  already answers as device 389005). It joined the ring; one minute later its counters read
+  2466 frames heard (1086 for it), 1917 sent, 0 dropped, 0 octets lost, last frame a Token
+  from 10 to 12. From BACnet/IP, a global Who-Is to the subnet broadcast came back as an
+  I-Am from 389105 via router 192.168.3.107, SNET 5, SADR 0C; ReadProperty through the
+  router (DNET 5, DADR 0C) read Object_Name, Max_APDU_Length_Accepted 480,
+  Application_Software_Version 1.2.0, and Network Port 3: "Amber", Network_Type 2,
+  MAC_Address 0C, Max_Master 127, Max_Info_Frames 1, Link_Speed 38400.0, APDU_Length 480.
+  Only 38400 was run on the wire (the segment's rate); the router was not reconfigured.
+
+### Not checked yet
+
+- macOS: nothing was built or run there. On Linux, MS/TP through `common/SimpleSerial` was built
+  but not run on a bus (WSL has no serial adapter attached).
+- 76800 baud on Linux: termios has no `B76800` on most systems, so `SimpleSerial` refuses it
+  there; a `termios2` / `BOTHER` custom rate would be needed.
+- A USB serial adapter reports a write as done when the USB transfer completes, a little
+  before the adapter's UART has sent the last octet. Not measured; if a station misses
+  replies at high baud rates, look here first.
+- The BACnet/SC certificate procedures over BACnet (AtomicWriteFile to Files 2-4, then
+  ReinitializeDevice ACTIVATE_CHANGES; Network Port Command GENERATE_CSR_FILE): the code is
+  the B-SCHUB example's `CertStore`, but not exercised against this example.
+- The BACnet/SC failover hub.
+- Writing the MS/TP port's Max_Master / Max_Info_Frames and activating them.
+- MS/TP at baud rates other than 38400 on the wire (the others are accepted by `--mstp-baud`
+  and opened by `SimpleSerial`, but no segment ran at them).
+- Writing File_Size of the BACnet/SC certificate Files 2-4 over BACnet: the Set callback
+  handles it (truncate / extend before an AtomicWriteFile), but whether the stack lets a
+  client write it was not tried, so `docs/objects.json` lists no writable File property.
+
+### Pending in the series
+
+- `common/` gained `SimpleUDP6` and `SimpleSerial` (`common/CHANGELOG.md`, [Unreleased]).
+  `COMMON_VERSION` is not bumped and the series is not re-synced yet: do both when this
+  branch is merged (`tools/sync-common.sh`).
 
 ## Resolved in 1.1.0
 
@@ -36,7 +145,7 @@ own scope (bottom of this file).
 - **Trend Log writable properties** (`Enable`, `Record_Count`, `Log_Interval`) are in the PICS; Wire Test
   `trend_log_write_test.py`.
 
-## Known limitations at 1.2.0
+## Known limitations (since 1.2.0, unchanged at 1.3.0)
 
 None of these is a stack gap; they are this example's design, listed so a support request can quote them.
 

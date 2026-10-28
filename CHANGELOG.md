@@ -5,9 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.3.0] - 2026-10-28
 
-_No changes yet._
+Built on CAS BACnet Stack 6.x (`d9f39406`, 6.0.23). One executable now runs on any
+one of four BACnet data links, chosen at start-up with `--datalink`. The default,
+`ipv4`, is the same device as 1.2.0.
+
+### Added
+
+- **`--datalink ipv4|ipv6|mstp|sc`**, with each data link's own options. Every
+  option is checked, and an option for a data link other than the chosen one is
+  an error rather than silently ignored. `--help` lists them all.
+- **One Network Port object per data link**, only the active one's: 1 "Vermilion"
+  (BACnet/IP), 2 "Cerulean" (BACnet/IPv6), 3 "Amber" (MS/TP), 4 "Teal" (BACnet/SC).
+- **BACnet/IPv6** (`--datalink ipv6`, `--port`, `--interface`). Network Port 2
+  serves the host's IPv6 address, prefix length, default gateway, DNS server and
+  link speed, and the stack serves the VMAC. The start-up I-Am and Who-Is go to the
+  multicast group FF02::BAC0. `tests/ipv6_probe.py` checks it from outside.
+- **MS/TP** (`--datalink mstp`, `--mstp-port`, `--mstp-baud`, `--mstp-mac`,
+  `--mstp-max-master`, `--mstp-max-info-frames`) on a USB-to-RS-485 adapter. The
+  CAS BACnet Stack runs the MS/TP state machines; the example only moves bytes on
+  and off the serial port. Network Port 3's Max_Master and Max_Info_Frames are
+  writable as pending changes. The start-up I-Am and Who-Is wait until the station
+  has joined the token ring. The `m` key prints the MS/TP counters. The Device's
+  Max_APDU_Length_Accepted is 480 on MS/TP.
+- **BACnet/SC node** (`--datalink sc`, `--sc-hub`, `--sc-failover-hub`,
+  `--sc-cert-dir`, `--import-cari`), built when libwebsockets, OpenSSL and zlib are
+  found (`-D BBC_SC=OFF` leaves it out). The certificates follow the B-SCHUB
+  example's CARI flow: the first start writes a certificate request and stops, and
+  `--import-cari` installs the Certificate Authority's response, printing each CA's
+  SHA-256 fingerprint to check out of band. Files 2-5 expose the certificates over
+  BACnet; ReinitializeDevice ACTIVATE_CHANGES installs new ones only if the device
+  could still connect with them, and the Network Port Command GENERATE_CSR_FILE
+  makes a new key and request. `tools/sign_cari_request.py` signs a request with a
+  test CA.
+- ReinitializeDevice ACTIVATE_CHANGES on every data link, and the Network Port
+  Command DISCARD_CHANGES.
+- A start-up warning while `DCC_PASSWORD` is empty: any BACnet client can then
+  silence or restart the device, and on BACnet/SC replace its certificates.
+- `common/`: `SimpleUDP6` (a BACnet/IPv6 socket) and `SimpleSerial` (a serial port
+  for MS/TP), see `common/CHANGELOG.md`.
+
+### Changed
+
+- Reading the peer device (DS-RP-A, DS-RPM-A) runs on `ipv4` and `ipv6` only: on
+  MS/TP and BACnet/SC the CAS BACnet Stack does not hand the application the
+  answers. See `TODO.md`.
+- The Notification Class recipient is preset on `ipv4` only; on the other data
+  links a client writes Recipient_List.
+- `--deviceName` sets the name in the BACnet/SC certificate request as well.
+
+### Fixed
+
+- **Linux: BACnet/SC is built with the distribution's libwebsockets.** CMake now
+  finds Ubuntu's `LibwebsocketsConfig.cmake` as well as `libwebsockets-config.cmake`,
+  and the hub connector builds against libwebsockets 4.0 (Ubuntu 22.04), which
+  lacks `LWS_PROTOCOL_LIST_TERM`.
+- `tools/sign_cari_request.py` says it needs `cryptography` 42 or later.
+
+### Known limitations
+
+- MS/TP was run on a live bus at 38400 baud only. 76800 baud is refused on Linux,
+  where termios has no such rate.
+- The BACnet/SC failover hub, the certificate procedures over BACnet and writing
+  Max_Master / Max_Info_Frames have not been exercised against this example.
+- As a BACnet/IPv6 BBMD this example would not pass its peers' broadcasts on: it
+  gives the stack no destination address.
 
 ## [1.2.0] - 2026-10-27
 

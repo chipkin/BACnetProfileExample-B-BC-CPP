@@ -55,7 +55,12 @@
 //     Analog Value 1           "Diamond"     (REAL, read from the peer's Analog Input 1;
 //                                              intrinsic OutOfRange alarm; Reliability)
 //     Notification Class 1     "Crimson"     (routes Diamond's alarms; Recipient_List WRITABLE)
-//     Network Port 1           "Vermilion"   (the BACnet/IP port - required)
+//     Network Port 1           "Vermilion"   (the BACnet/IP port - required; --datalink ipv4)
+//       or Network Port 2      "Cerulean"    (BACnet/IPv6, --datalink ipv6)
+//       or Network Port 3      "Amber"       (MS/TP, --datalink mstp)
+//       or Network Port 4      "Teal"        (BACnet/SC, --datalink sc; plus the
+//                                              certificate Files 2-5)
+//          ONE data link runs at a time - see section 1b.
 //     Schedule 1               "Saffron"     (drives Chartreuse on a weekly + exception basis,
 //                                              and a remote peer object - SCHED-E-B)
 //     Calendar 1               "Cream"       (stack-held Date_List: every December 25;
@@ -91,18 +96,28 @@
 // Interactive keys (handled by the shared helper): h = help, q = quit,
 // up/down = nudge Analog Input 1 by +/-1.1, s = advance Schedule 1 ("Saffron")
 // with a Weekly_Schedule transition for right now. To fire an alarm, drive the
-// peer's Analog Input 1 above 90 or below 10. Command line: --port <n>,
-// --deviceID <n>, --deviceName <text>.
+// peer's Analog Input 1 above 90 or below 10; m = MS/TP counters (--datalink
+// mstp). Command line: --datalink ipv4|ipv6|mstp|sc, --port <n>, --deviceID <n>,
+// --deviceName <text> and each data link's own options - run with --help for
+// the list (command_line.cpp).
 //
-// Most of the plumbing (CLI, keyboard, frame logging, time) lives in
+// Most of the plumbing (keyboard, frame logging, time) lives in
 // common/CASExampleHelper so this file can stay focused on the BACnet logic. The
-// UDP socket is the exception: this example owns it, so it can read the answers
-// to its own ReadProperty requests (section 2e).
+// data link is the exception: this example owns its UDP socket, so it can read
+// the answers to its own ReadProperty requests (section 2e), and it drives the
+// MS/TP and BACnet/SC data links itself (mstp/, sc/).
 // =============================================================================
 
 #include "CASExampleHelper.h"
 #include "CASBACnetStackExampleConstants.h"
-#include "SimpleUDP.h"   // this example owns its BACnet/IP socket - see section 2e
+#include "SimpleUDP.h"   // --datalink ipv4: this example owns its BACnet/IP socket - see section 2e
+#include "SimpleUDP6.h"  // --datalink ipv6: ... and its BACnet/IPv6 socket
+#include "command_line.h"            // --datalink and every other option (command_line.cpp)
+#include "ipv6/LocalIPv6Address.h"   // the host's IPv6 address, for the IPv6 Network Port
+#include "mstp/MstpDataLink.h"       // --datalink mstp: the stack's MS/TP engine on a serial port
+#ifdef BBC_WITH_SC
+#include "sc/ScNode.h"               // --datalink sc: BACnet/SC node (built when libwebsockets is found)
+#endif
 #include "CASBACnetStackAdapter.h" // the CAS BACnet Stack C API (BACnetStack_*); call
                                     // LoadBACnetFunctions() before any BACnetStack_* call -
                                     // see the top of main() below.
@@ -115,6 +130,7 @@
 
 #if defined(_WIN32)
 #include <windows.h> // Sleep()
+#include <mmsystem.h> // timeBeginPeriod() - 1 ms sleeps for MS/TP (winmm)
 #else
 #include <unistd.h>  // usleep()
 #endif
@@ -125,7 +141,7 @@ using namespace CASBACnetStackExampleConstants;
 // 1. Example + device configuration
 // -----------------------------------------------------------------------------
 static const char* APP_NAME = "BACnet B-BC (Building Controller) Example - C++";
-static const char* APP_VERSION = "1.2.0";
+static const char* APP_VERSION = "1.3.0";
 
 // The device instance. BACnet requires this to be configurable, so it defaults
 // to 389005 and can be overridden on the command line with --deviceID. Keep it
@@ -192,6 +208,12 @@ static const char* MODEL_NAME = "CAS BACnet Stack Example - B-BC";
 // (no password required). Change this to your device's secret before shipping -
 // it crosses the wire in PLAINTEXT, so treat it as a guard against accidents,
 // not a security boundary.
+//
+// It is EMPTY here on purpose, so a test client can try every service, and the
+// device prints a warning at every start while it is. On BACnet/SC it matters
+// more: ReinitializeDevice ACTIVATE_CHANGES is how a client installs the
+// certificates it wrote to the certificate File objects, so with no password
+// any peer on the hub can replace this device's certificates.
 static const char* DCC_PASSWORD = "";  // "" = no password required
 
 // Firmware_Revision (Device object property 44) reflects the underlying CAS
@@ -342,6 +364,7 @@ static const uint32_t REINITIALIZE_STATE_ENDBACKUP = 3;
 static const uint32_t REINITIALIZE_STATE_STARTRESTORE = 4;
 static const uint32_t REINITIALIZE_STATE_ENDRESTORE = 5;
 static const uint32_t REINITIALIZE_STATE_ABORTRESTORE = 6;
+static const uint32_t REINITIALIZE_STATE_ACTIVATE_CHANGES = 7;  // apply pending Network Port changes
 static const uint32_t SERVICE_ATOMIC_READ_FILE = 6;
 static const uint32_t SERVICE_ATOMIC_WRITE_FILE = 7;
 
@@ -461,6 +484,244 @@ static bool ReadPrioritySlot(const Commandable* c, uint32_t propertyIdentifier,
 }
 
 // -----------------------------------------------------------------------------
+// 1b. The data link - chosen at run time with --datalink
+//
+// ONE executable, four BACnet data links, ONE of them at a time:
+//
+//     --datalink ipv4  BACnet/IP   Network Port 1 "Vermilion"  (the default)
+//     --datalink ipv6  BACnet/IPv6 Network Port 2 "Cerulean"
+//     --datalink mstp  MS/TP       Network Port 3 "Amber"
+//     --datalink sc    BACnet/SC   Network Port 4 "Teal"
+//
+// Every data link gets its OWN Network Port instance, even though only one runs
+// at a time. That is a choice, not a rule: a client that remembers "Network Port
+// 1 is the BACnet/IP port" must not find an MS/TP port there after a restart.
+// The device has only the active data link's Network Port object.
+//
+// The stack serves most of a Network Port itself (Network_Type, Protocol_Level,
+// MAC_Address for IPv6 and SC, APDU_Length ...). What it cannot know - the
+// host's IPv6 address, the MS/TP station address the installer chose - it asks
+// for through the same Get callbacks as every other property. The helpers below
+// answer those for the IPv6, MS/TP and SC ports; the BACnet/IP port's answers
+// stay inline in the callbacks, as they were. Each Get callback calls the
+// matching helper first.
+// -----------------------------------------------------------------------------
+static CommandLineOptions g_options; // --datalink and every data-link setting (command_line.h)
+
+static const uint32_t IPV6_NETWORK_PORT_INSTANCE = 2;  // "Cerulean"
+static const uint32_t MSTP_NETWORK_PORT_INSTANCE = 3;  // "Amber"
+static const uint32_t SC_NETWORK_PORT_INSTANCE = 4;    // "Teal"
+
+// BACnetNetworkType (cl. 12.56.9) values, and Network Port / Device property
+// identifiers, that are not in common/CASBACnetStackExampleConstants.h
+// (checked against the stack's BACnetPropertyIdentifier.h at the pin).
+static const uint8_t NETWORK_PORT_NETWORK_TYPE_MSTP = 2;
+static const uint8_t NETWORK_PORT_NETWORK_TYPE_IPV6 = 9;
+static const uint32_t PROPERTY_IDENTIFIER_IPV6_ADDRESS = 436;
+static const uint32_t PROPERTY_IDENTIFIER_IPV6_PREFIX_LENGTH = 437;
+static const uint32_t PROPERTY_IDENTIFIER_BACNET_IPV6_UDP_PORT = 438;
+static const uint32_t PROPERTY_IDENTIFIER_IPV6_DEFAULT_GATEWAY = 439;
+static const uint32_t PROPERTY_IDENTIFIER_IPV6_DNS_SERVER = 441;
+static const uint32_t PROPERTY_IDENTIFIER_MAX_INFO_FRAMES = 63;
+static const uint32_t PROPERTY_IDENTIFIER_MAX_MASTER = 64;   // "Max_Manager" in 135-2024
+static const uint32_t PROPERTY_IDENTIFIER_MAX_APDU_LENGTH_ACCEPTED = 62;
+static const uint32_t PROPERTY_IDENTIFIER_NETWORK_NUMBER = 425;
+
+// The largest APDU on MS/TP is 480 octets (the stack's MS/TP Network Port reports
+// APDU_Length 480 by itself). The Device object's Max_APDU_Length_Accepted must
+// agree, so in MS/TP mode this example serves 480 for it; on the other data links
+// the stack's default (1476) stands.
+static const uint32_t MSTP_MAX_APDU_LENGTH = 480;
+
+// --datalink ipv6: the host's IPv6 addressing, read once at start-up.
+static LocalIPv6Address g_ipv6Address;
+
+// The active data link's Network Port instance - the one the transport callbacks
+// and every BACnetStack_Send* call name.
+static uint32_t ActiveNetworkPortInstance() {
+    switch (g_options.dataLink) {
+        case DataLink::IPv6: return IPV6_NETWORK_PORT_INSTANCE;
+        case DataLink::MSTP: return MSTP_NETWORK_PORT_INSTANCE;
+        case DataLink::SC:   return SC_NETWORK_PORT_INSTANCE;
+        case DataLink::IPv4:
+        default:             return NETWORK_PORT_INSTANCE;
+    }
+}
+
+// The colour name of the IPv6, MS/TP or SC Network Port, when it is the active
+// one; NULL otherwise (the BACnet/IP port's "Vermilion" is served inline).
+static const char* DataLinkPortName(const uint16_t objectType, const uint32_t objectInstance) {
+    if (objectType != OBJECT_TYPE_NETWORK_PORT || objectInstance != ActiveNetworkPortInstance()) {
+        return NULL;
+    }
+    switch (g_options.dataLink) {
+        case DataLink::IPv6: return "Cerulean";
+        case DataLink::MSTP: return "Amber";
+        case DataLink::SC:   return "Teal";
+        case DataLink::IPv4:
+        default:             return NULL;
+    }
+}
+
+// Is this the active port, and is it the given data link's?
+static bool IsDataLinkPort(const uint16_t objectType, const uint32_t objectInstance, const DataLink dataLink) {
+    return g_options.dataLink == dataLink && objectType == OBJECT_TYPE_NETWORK_PORT &&
+           objectInstance == ActiveNetworkPortInstance();
+}
+
+// REAL: Link_Speed. On MS/TP it is the baud rate - and the stack's MS/TP engine
+// reads it from here to know how fast the line runs. On BACnet/IPv6 it is the
+// interface speed, as for the BACnet/IP port.
+static bool GetDataLinkPortReal(const uint16_t objectType, const uint32_t objectInstance,
+                                const uint32_t propertyIdentifier, float* value) {
+    if (propertyIdentifier != PROPERTY_IDENTIFIER_LINK_SPEED) {
+        return false;
+    }
+    if (IsDataLinkPort(objectType, objectInstance, DataLink::MSTP)) {
+        *value = (float)g_options.mstpBaudRate;
+        return true;
+    }
+    if (IsDataLinkPort(objectType, objectInstance, DataLink::IPv6)) {
+        *value = g_linkSpeedBitsPerSecond;
+        return true;
+    }
+    return false;
+}
+
+// UNSIGNED: the IPv6 port's prefix length and UDP port; the MS/TP port's
+// Max_Master and Max_Info_Frames (which the MS/TP engine reads too); and, in
+// MS/TP mode, the Device's Max_APDU_Length_Accepted.
+static bool GetDataLinkPortUnsigned(const uint16_t objectType, const uint32_t objectInstance,
+                                    const uint32_t propertyIdentifier, const bool useArrayIndex,
+                                    const uint32_t propertyArrayIndex, uint32_t* value) {
+    if (g_options.dataLink == DataLink::MSTP && objectType == OBJECT_TYPE_DEVICE &&
+        objectInstance == g_deviceInstance && propertyIdentifier == PROPERTY_IDENTIFIER_MAX_APDU_LENGTH_ACCEPTED) {
+        *value = MSTP_MAX_APDU_LENGTH;
+        return true;
+    }
+    if (IsDataLinkPort(objectType, objectInstance, DataLink::IPv6)) {
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_IPV6_PREFIX_LENGTH) {
+            *value = g_ipv6Address.prefixLength;
+            return true;
+        }
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_BACNET_IPV6_UDP_PORT) {
+            *value = g_options.udpPort;
+            return true;
+        }
+        // IPv6_DNS_Server is an array: the stack asks for its length here
+        // (array index 0) and for each address from the OCTET STRING callback.
+        // With no IPv6 DNS server this declines, and the stack reports one
+        // unconfigured entry.
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_IPV6_DNS_SERVER && useArrayIndex && propertyArrayIndex == 0 &&
+            g_ipv6Address.hasDnsServer) {
+            *value = 1;
+            return true;
+        }
+    }
+    if (IsDataLinkPort(objectType, objectInstance, DataLink::MSTP)) {
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_MAX_MASTER) {
+            *value = g_options.mstpMaxMaster;
+            return true;
+        }
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_MAX_INFO_FRAMES) {
+            *value = g_options.mstpMaxInfoFrames;
+            return true;
+        }
+    }
+    return false;
+}
+
+// UNSIGNED write, at activation: a client may write the MS/TP port's Max_Master
+// and Max_Info_Frames. The stack holds the write as PENDING (Changes_Pending
+// TRUE) and hands it here only on ReinitializeDevice ACTIVATE_CHANGES (or
+// WARMSTART). Storing it is enough: the stack re-reads both through the Get
+// callback above after every activation and reconfigures the MS/TP engine.
+//
+// DO NOT REFUSE A VALUE HERE. The stack range-checked the write when it arrived
+// (Max_Master 0..127, Max_Info_Frames 1..255) and has no hook for the app to
+// check it then. By the time this runs, CallbackReinitializeDevice has already
+// accepted the request - and for WARMSTART armed the restart - so a refusal now
+// answers the client with an Error while the device restarts anyway, and leaves
+// the value pending to fail every later activation. Accept, and warn instead.
+static bool SetDataLinkPortUnsigned(const uint16_t objectType, const uint32_t objectInstance,
+                                    const uint32_t propertyIdentifier, const uint32_t value, uint32_t* errorCode) {
+    (void)errorCode;
+    if (!IsDataLinkPort(objectType, objectInstance, DataLink::MSTP)) {
+        return false;
+    }
+    if (propertyIdentifier == PROPERTY_IDENTIFIER_MAX_MASTER) {
+        g_options.mstpMaxMaster = (uint8_t)(value > 127 ? 127 : value);
+        printf("Network Port %u (Amber): Max_Master is now %u\n", objectInstance, (unsigned)g_options.mstpMaxMaster);
+        if (g_options.mstpMaxMaster < g_options.mstpMacAddress) {
+            printf("Warning: Max_Master %u is below this station's MAC %u: no station will pass this one the "
+                   "token until Max_Master is raised again.\n",
+                   (unsigned)g_options.mstpMaxMaster, (unsigned)g_options.mstpMacAddress);
+        }
+        return true;
+    }
+    if (propertyIdentifier == PROPERTY_IDENTIFIER_MAX_INFO_FRAMES) {
+        g_options.mstpMaxInfoFrames = (uint8_t)(value < 1 ? 1 : (value > 255 ? 255 : value));
+        printf("Network Port %u (Amber): Max_Info_Frames is now %u\n", objectInstance,
+               (unsigned)g_options.mstpMaxInfoFrames);
+        return true;
+    }
+    // Any other pending unsigned value of this port - a client-written
+    // Network_Number, say - is held and served by the stack itself: there is
+    // nothing for the app to store, but returning false would refuse it.
+    return true;
+}
+
+// OCTET STRING: the IPv6 port's address, default gateway and DNS server (16
+// octets each), and the MS/TP port's MAC_Address - ONE octet, the station
+// address. The stack serves MAC_Address from this, and its MS/TP engine takes
+// its own address from it: this is where --mstp-mac reaches the token ring.
+static bool GetDataLinkPortOctetString(const uint16_t objectType, const uint32_t objectInstance,
+                                       const uint32_t propertyIdentifier, const bool useArrayIndex,
+                                       const uint32_t propertyArrayIndex, uint8_t* value,
+                                       uint32_t* valueElementCount, const uint32_t maxElementCount) {
+    if (IsDataLinkPort(objectType, objectInstance, DataLink::IPv6) && maxElementCount >= 16) {
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_IPV6_ADDRESS) {
+            memcpy(value, g_ipv6Address.address, 16);
+            *valueElementCount = 16;
+            return true;
+        }
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_IPV6_DEFAULT_GATEWAY) {
+            memcpy(value, g_ipv6Address.defaultGateway, 16);
+            *valueElementCount = 16;
+            return true;
+        }
+        // IPv6_DNS_Server[1], the only element (its length is in section 1b's
+        // UNSIGNED helper above).
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_IPV6_DNS_SERVER && g_ipv6Address.hasDnsServer &&
+            (!useArrayIndex || propertyArrayIndex == 1)) {
+            memcpy(value, g_ipv6Address.dnsServer, 16);
+            *valueElementCount = 16;
+            return true;
+        }
+    }
+    if (IsDataLinkPort(objectType, objectInstance, DataLink::MSTP) && maxElementCount >= 1 &&
+        propertyIdentifier == PROPERTY_IDENTIFIER_MAC_ADDRESS) {
+        value[0] = g_options.mstpMacAddress;
+        *valueElementCount = 1;
+        return true;
+    }
+    return false;
+}
+
+// The BACnet/SC certificate File objects (Files 2-5, --datalink sc only). Their
+// contents are the certificate files in --sc-cert-dir; sc/ScNode.cpp serves them.
+static bool IsScCertificateFile(const uint16_t objectType, const uint32_t objectInstance) {
+#ifdef BBC_WITH_SC
+    return g_options.dataLink == DataLink::SC && objectType == OBJECT_TYPE_FILE &&
+           ScNode::IsCertificateFile(objectInstance);
+#else
+    (void)objectType;
+    (void)objectInstance;
+    return false;
+#endif
+}
+
+// -----------------------------------------------------------------------------
 // 2. Property "get" callbacks
 //
 // The stack calls these when a client reads a property. For each data type the
@@ -534,6 +795,10 @@ bool GetPropertyReal(const uint32_t deviceInstance, const uint16_t objectType,
     (void)errorCode; // see "THE errorCode OUT-PARAMETER" below: every catch-all here declines without naming an error
     if (deviceInstance != g_deviceInstance) {
         return false;
+    }
+    // The IPv6 / MS/TP Network Port's Link_Speed (section 1b).
+    if (GetDataLinkPortReal(objectType, objectInstance, propertyIdentifier, value)) {
+        return true;
     }
     if (objectType == OBJECT_TYPE_ANALOG_INPUT &&
         objectInstance == ANALOG_INPUT_INSTANCE &&
@@ -692,6 +957,18 @@ bool GetPropertyUnsignedInteger(const uint32_t deviceInstance, const uint16_t ob
     if (deviceInstance != g_deviceInstance) {
         return false;
     }
+    // The IPv6 / MS/TP Network Port's numbers, and the MS/TP Max_APDU (section 1b).
+    if (GetDataLinkPortUnsigned(objectType, objectInstance, propertyIdentifier, useArrayIndex, propertyArrayIndex,
+                                value)) {
+        return true;
+    }
+#ifdef BBC_WITH_SC
+    // The BACnet/SC certificate File objects (Files 2-5): File_Size is the size
+    // of the certificate file on disk.
+    if (IsScCertificateFile(objectType, objectInstance) && propertyIdentifier == PROPERTY_IDENTIFIER_FILE_SIZE) {
+        return ScNode::GetCertificateFileSize(objectInstance, value);
+    }
+#endif
     if (objectType == OBJECT_TYPE_MULTI_STATE_INPUT &&
         objectInstance == MULTI_STATE_INPUT_INSTANCE) {
         if (propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
@@ -800,6 +1077,21 @@ bool GetPropertyBool(const uint32_t deviceInstance, const uint16_t objectType,
         *value = false;
         return true;
     }
+#ifdef BBC_WITH_SC
+    // The BACnet/SC certificate File objects: never archived; the certificate
+    // signing request is read-only (the device makes it), the rest are written
+    // by a client to install new certificates.
+    if (IsScCertificateFile(objectType, objectInstance)) {
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_ARCHIVE) {
+            *value = false;
+            return true;
+        }
+        if (propertyIdentifier == PROPERTY_IDENTIFIER_READ_ONLY) {
+            *value = ScNode::IsCertificateFileReadOnly(objectInstance);
+            return true;
+        }
+    }
+#endif
     // Ivory (File 1) - Archive (writable, DM-BR-B configuration-file marker) and
     // Read_Only are both REQUIRED with no stack default.
     if (objectType == OBJECT_TYPE_FILE && objectInstance == FILE_INSTANCE) {
@@ -824,10 +1116,15 @@ bool GetPropertyOctetString(const uint32_t deviceInstance, const uint16_t object
                             uint8_t* value, uint32_t* valueElementCount,
                             const uint32_t maxElementCount, const bool useArrayIndex,
                             const uint32_t propertyArrayIndex, uint32_t* errorCode) {
-    (void)useArrayIndex;
     (void)errorCode;
-    (void)propertyArrayIndex;
-    if (deviceInstance != g_deviceInstance ||
+    // The IPv6 port's addresses and the MS/TP port's MAC_Address (section 1b).
+    if (deviceInstance == g_deviceInstance &&
+        GetDataLinkPortOctetString(objectType, objectInstance, propertyIdentifier, useArrayIndex, propertyArrayIndex,
+                                   value, valueElementCount, maxElementCount)) {
+        return true;
+    }
+    // The BACnet/IP port "Vermilion" - only when BACnet/IP is the data link.
+    if (deviceInstance != g_deviceInstance || g_options.dataLink != DataLink::IPv4 ||
         objectType != OBJECT_TYPE_NETWORK_PORT ||
         objectInstance != NETWORK_PORT_INSTANCE ||
         maxElementCount < 4) {
@@ -939,6 +1236,17 @@ bool GetPropertyCharString(const uint32_t deviceInstance, const uint16_t objectT
         if (objectType == OBJECT_TYPE_NETWORK_PORT && objectInstance == NETWORK_PORT_INSTANCE) {
             return ReturnCharacterString("Vermilion", value, valueElementCount, maxElementCount, encodingType);
         }
+        // "Cerulean" / "Amber" / "Teal" - the IPv6, MS/TP or BACnet/SC port.
+        const char* dataLinkPortName = DataLinkPortName(objectType, objectInstance);
+        if (dataLinkPortName != NULL) {
+            return ReturnCharacterString(dataLinkPortName, value, valueElementCount, maxElementCount, encodingType);
+        }
+#ifdef BBC_WITH_SC
+        if (IsScCertificateFile(objectType, objectInstance)) {
+            return ReturnCharacterString(ScNode::CertificateFileName(objectInstance), value, valueElementCount,
+                                         maxElementCount, encodingType);
+        }
+#endif
         if (objectType == OBJECT_TYPE_SCHEDULE && objectInstance == SCHEDULE_INSTANCE) {
             return ReturnCharacterString("Saffron", value, valueElementCount, maxElementCount, encodingType);
         }
@@ -960,6 +1268,11 @@ bool GetPropertyCharString(const uint32_t deviceInstance, const uint16_t objectT
         propertyIdentifier == PROPERTY_IDENTIFIER_FILE_TYPE) {
         return ReturnCharacterString("application/octet-stream", value, valueElementCount,
                                      maxElementCount, encodingType);
+    }
+    // The BACnet/SC certificate files are PEM text.
+    if (IsScCertificateFile(objectType, objectInstance) && propertyIdentifier == PROPERTY_IDENTIFIER_FILE_TYPE) {
+        return ReturnCharacterString("application/x-pem-file", value, valueElementCount, maxElementCount,
+                                     encodingType);
     }
 
     // The remaining strings are all on the Device object - its identity, read
@@ -1029,6 +1342,18 @@ bool GetPropertyTime(const uint32_t deviceInstance, const uint16_t objectType,
         *hour = 0; *minute = 0; *second = 0; *hundredthSecond = 0;
         return true;
     }
+#ifdef BBC_WITH_SC
+    // A certificate File's Modification_Date: when the file on disk last changed.
+    struct tm modifiedUtc;
+    if (IsScCertificateFile(objectType, objectInstance) && propertyIdentifier == PROPERTY_IDENTIFIER_MODIFICATION_DATE &&
+        ScNode::GetCertificateFileModified(objectInstance, &modifiedUtc)) {
+        *hour = (uint8_t)modifiedUtc.tm_hour;
+        *minute = (uint8_t)modifiedUtc.tm_min;
+        *second = (uint8_t)modifiedUtc.tm_sec;
+        *hundredthSecond = 0;
+        return true;
+    }
+#endif
     if (objectType == OBJECT_TYPE_DEVICE && objectInstance == g_deviceInstance &&
         propertyIdentifier == PROPERTY_IDENTIFIER_LOCAL_TIME) {
         struct tm nowTm;
@@ -1061,6 +1386,17 @@ bool GetPropertyDate(const uint32_t deviceInstance, const uint16_t objectType,
         *yearMinus1900 = 126; *month = 1; *day = 1; *weekday = 4; // nominal 2026-01-01 Thu
         return true;
     }
+#ifdef BBC_WITH_SC
+    struct tm modifiedUtc;
+    if (IsScCertificateFile(objectType, objectInstance) && propertyIdentifier == PROPERTY_IDENTIFIER_MODIFICATION_DATE &&
+        ScNode::GetCertificateFileModified(objectInstance, &modifiedUtc)) {
+        *yearMinus1900 = (uint8_t)modifiedUtc.tm_year;
+        *month = (uint8_t)(modifiedUtc.tm_mon + 1);
+        *day = (uint8_t)modifiedUtc.tm_mday;
+        *weekday = (uint8_t)(((modifiedUtc.tm_wday + 6) % 7) + 1);  // tm: 0=Sunday; BACnet: 1=Monday
+        return true;
+    }
+#endif
     if (objectType == OBJECT_TYPE_DEVICE && objectInstance == g_deviceInstance &&
         propertyIdentifier == PROPERTY_IDENTIFIER_LOCAL_DATE) {
         struct tm nowTm;
@@ -1165,6 +1501,24 @@ bool SetPropertyUnsignedInteger(const uint32_t deviceInstance, const uint16_t ob
     if (deviceInstance != g_deviceInstance) {
         return false;
     }
+    // The MS/TP port's Max_Master / Max_Info_Frames, at activation (section 1b).
+    if (IsDataLinkPort(objectType, objectInstance, DataLink::MSTP)) {
+        return SetDataLinkPortUnsigned(objectType, objectInstance, propertyIdentifier, value, errorCode);
+    }
+    // A client-written Network_Number on the other ports, at activation: the
+    // stack holds and serves it; refusing it here would fail the activation
+    // after ReinitializeDevice already accepted it (see SetDataLinkPortUnsigned).
+    if (objectType == OBJECT_TYPE_NETWORK_PORT && objectInstance == ActiveNetworkPortInstance() &&
+        propertyIdentifier == PROPERTY_IDENTIFIER_NETWORK_NUMBER) {
+        return true;
+    }
+#ifdef BBC_WITH_SC
+    // A certificate File's File_Size: a client writes 0 to empty the file before
+    // writing a new certificate into it.
+    if (IsScCertificateFile(objectType, objectInstance) && propertyIdentifier == PROPERTY_IDENTIFIER_FILE_SIZE) {
+        return ScNode::ResizeCertificateFile(objectInstance, value, errorCode);
+    }
+#endif
     Commandable* c = GetCommandable(objectType, objectInstance);
     if (c != NULL && objectType == OBJECT_TYPE_MULTI_STATE_OUTPUT &&
         propertyIdentifier == PROPERTY_IDENTIFIER_PRESENT_VALUE) {
@@ -1354,7 +1708,8 @@ bool DeviceCommunicationControl(const uint32_t deviceInstance, const uint8_t ena
 
 // ReinitializeDevice (DM-RD-B) - ALSO the DM-BR-B backup/restore state machine
 // entry point. reinitializedState: 0=COLDSTART, 1=WARMSTART, 2=STARTBACKUP,
-// 3=ENDBACKUP, 4=STARTRESTORE, 5=ENDRESTORE, 6=ABORTRESTORE. The stack itself
+// 3=ENDBACKUP, 4=STARTRESTORE, 5=ENDRESTORE, 6=ABORTRESTORE, 7=ACTIVATE_CHANGES
+// (apply pending Network Port changes - see below). The stack itself
 // drives the backup/restore sequence (calling the four Prepare/Complete
 // callbacks below and moving Backup_And_Restore_State) once this callback
 // ACCEPTS the request; accepting only means "password OK, proceed" - it does
@@ -1382,6 +1737,26 @@ bool ReinitializeDevice(const uint32_t deviceInstance, const uint32_t reinitiali
     // ACK is never transmitted: the client times out and reports this device as
     // unresponsive even though it obeyed. So record a deadline, return, let the
     // ACK ship, and do the actual restart from the main loop.
+    //
+    // ACTIVATE_CHANGES (and WARMSTART) first apply what is PENDING. The stack
+    // activates its own pending Network Port writes (the MS/TP port's Max_Master,
+    // say) after this callback accepts; certificates written to the BACnet/SC
+    // certificate Files are this example's to check and save - and if they would
+    // leave the device unable to connect, the request is refused and nothing
+    // changes.
+#ifdef BBC_WITH_SC
+    if (g_options.dataLink == DataLink::SC &&
+        (reinitializedState == REINITIALIZE_STATE_ACTIVATE_CHANGES ||
+         reinitializedState == REINITIALIZE_STATE_WARMSTART) &&
+        !ScNode::ApplyStagedCertificates(errorCode)) {
+        printf("ReinitializeDevice: REJECTED (the new certificates would not work)\n");
+        return false;
+    }
+#endif
+    if (reinitializedState == REINITIALIZE_STATE_ACTIVATE_CHANGES) {
+        printf("ReinitializeDevice: ACTIVATE_CHANGES accepted (pending Network Port changes take effect)\n");
+        return true;
+    }
     if (reinitializedState == REINITIALIZE_STATE_COLDSTART) {
         printf("ReinitializeDevice: COLDSTART accepted (restarting in %u ms)\n",
                (unsigned)CASExampleHelper::RESTART_DELAY_MS);
@@ -1415,6 +1790,13 @@ bool ReadFile(const uint32_t deviceInstance, const uint32_t fileInstance, const 
              const uint32_t requestedCount, uint8_t* fileData, uint32_t* fileDataLength,
              const uint32_t maxFileDataLength, bool* endOfFile, uint32_t* errorCode) {
     (void)errorCode;
+#ifdef BBC_WITH_SC
+    // The BACnet/SC certificate Files (2-5) are files in --sc-cert-dir.
+    if (deviceInstance == g_deviceInstance && IsScCertificateFile(OBJECT_TYPE_FILE, fileInstance)) {
+        return ScNode::ReadCertificateFile(fileInstance, fileStart, requestedCount, fileData, fileDataLength,
+                                           maxFileDataLength, endOfFile);
+    }
+#endif
     if (deviceInstance != g_deviceInstance || fileInstance != FILE_INSTANCE) {
         return false;
     }
@@ -1437,10 +1819,18 @@ bool WriteFile(const uint32_t deviceInstance, const uint32_t fileInstance, const
               const uint8_t* fileData, const uint32_t fileDataLength, int32_t* ackFileStart,
               uint32_t* errorCode) {
     (void)errorCode;
+#ifdef BBC_WITH_SC
+    // A new certificate written to a BACnet/SC certificate File is STAGED, not
+    // used: ReinitializeDevice ACTIVATE_CHANGES checks it and puts it in place.
+    if (deviceInstance == g_deviceInstance && IsScCertificateFile(OBJECT_TYPE_FILE, fileInstance)) {
+        return ScNode::WriteCertificateFile(fileInstance, fileStart, fileData, fileDataLength, ackFileStart,
+                                            errorCode);
+    }
+#endif
     if (deviceInstance != g_deviceInstance || fileInstance != FILE_INSTANCE) {
         return false;
     }
-    uint32_t start = (fileStart == -1) ? g_fileDataLength : (uint32_t)fileStart;
+    uint32_t start =(fileStart == -1) ? g_fileDataLength : (uint32_t)fileStart;
     if (start + fileDataLength > FILE_MAX_SIZE) {
         return false;
     }
@@ -1451,6 +1841,34 @@ bool WriteFile(const uint32_t deviceInstance, const uint32_t fileInstance, const
     *ackFileStart = (int32_t)start;
     printf("WriteFile: Ivory <- %u byte(s) at offset %d\n", fileDataLength, (int)start);
     return true;
+}
+
+// Network Port Command (the Command property, cl. 12.56). The stack runs the
+// command itself and asks the application only about the two that touch data
+// the application holds:
+//   DISCARD_CHANGES (1)   - throw away pending changes; on the BACnet/SC port that
+//                           includes certificates written but not yet activated.
+//   GENERATE_CSR_FILE (9) - the BACnet/SC port: a new key pair and certificate
+//                           signing request (File 5).
+// Every other command, and every other port, needs nothing from the application.
+static const uint32_t NETWORK_PORT_COMMAND_DISCARD_CHANGES = 1;
+bool NetworkPortCommand(const uint32_t deviceInstance, const uint32_t networkPortInstance, const uint32_t command,
+                        uint32_t* errorCode) {
+    if (deviceInstance != g_deviceInstance) {
+        *errorCode = ERROR_CODE_OPTIONAL_FUNCTIONALITY_NOT_SUPPORTED;
+        return false;
+    }
+#ifdef BBC_WITH_SC
+    if (g_options.dataLink == DataLink::SC && networkPortInstance == SC_NETWORK_PORT_INSTANCE) {
+        return ScNode::NetworkPortCommand(command, errorCode);
+    }
+#endif
+    if (command == NETWORK_PORT_COMMAND_DISCARD_CHANGES) {
+        printf("Network Port %u Command DISCARD_CHANGES\n", networkPortInstance);
+        return true;  // the stack reverts its own pending values
+    }
+    *errorCode = ERROR_CODE_OPTIONAL_FUNCTIONALITY_NOT_SUPPORTED;
+    return false;
 }
 
 bool PrepareBackup(const uint32_t deviceInstance) {
@@ -1566,6 +1984,54 @@ bool AcknowledgeAlarm(const uint32_t deviceInstance, const uint32_t /*acknowledg
     return true; // accept the acknowledgement
 }
 
+// -----------------------------------------------------------------------------
+// The transport's addressing, per data link
+//
+// The stack names every peer by a CONNECTION STRING - the data link's own address
+// for it - and every message by the Network Port it travels on:
+//
+//   ipv4  IP[4] + UDP port[2], network order (6 octets)
+//   ipv6  IPv6[16] + UDP port[2] - its B/IPv6 address (18 octets, Annex U); a
+//         BACnet broadcast goes out with NO connection string, to the multicast
+//         group FF02::BAC0 (SimpleUDP6::SendMulticast)
+//   mstp  the one-octet station address (MAC); 0xFF is the broadcast
+//   sc    the hub's URI: on BACnet/SC every message goes through the hub
+//         (sc/ScNode.cpp)
+// -----------------------------------------------------------------------------
+
+// How many octets of an IP connection string are the address (the rest is the
+// UDP port). Only meaningful on ipv4 / ipv6.
+static uint8_t TransportAddressLength() {
+    return g_options.dataLink == DataLink::IPv6 ? 16 : 4;
+}
+
+// How long an IP connection string is: the address, then the 2-octet UDP port.
+static uint8_t TransportConnectionStringLength() {
+    return (uint8_t)(TransportAddressLength() + 2);
+}
+
+// Is the data link one of the two UDP ones (which this example reads replies on)?
+static bool IsIpDataLink() {
+    return g_options.dataLink == DataLink::IPv4 || g_options.dataLink == DataLink::IPv6;
+}
+
+// A peer's address as text, for the log: a.b.c.d:port, or [ipv6]:port.
+static const char* AddressText(const uint8_t* connectionString, char* text, const size_t textSize) {
+    if (g_options.dataLink == DataLink::IPv6) {
+        char digits[64] = "";
+        size_t used = 0;
+        for (int groupIndex = 0; groupIndex < 8; ++groupIndex) {
+            used += (size_t)snprintf(digits + used, sizeof(digits) - used, groupIndex == 0 ? "%x" : ":%x",
+                                     (unsigned)((connectionString[2 * groupIndex] << 8) | connectionString[2 * groupIndex + 1]));
+        }
+        snprintf(text, textSize, "[%s]:%u", digits, (unsigned)((connectionString[16] << 8) | connectionString[17]));
+    } else {
+        snprintf(text, textSize, "%u.%u.%u.%u:%u", connectionString[0], connectionString[1], connectionString[2],
+                 connectionString[3], (unsigned)((connectionString[4] << 8) | connectionString[5]));
+    }
+    return text;
+}
+
 // Build the 6-octet BACnet/IP connection string for the LOCAL SUBNET BROADCAST:
 // the directed broadcast address (IP | ~mask) followed by the UDP port in network
 // byte order. (When the mask is 0.0.0.0 - the helper's fallback - this collapses to
@@ -1578,6 +2044,9 @@ static void LocalBroadcastConnString(uint8_t out[6]) {
     out[4] = (uint8_t)(g_bacnetIpUdpPort >> 8);
     out[5] = (uint8_t)(g_bacnetIpUdpPort & 0xFF);
 }
+
+// The MS/TP broadcast station address.
+static const uint8_t MSTP_BROADCAST_MAC_ADDRESS = 0xFF;
 
 // -----------------------------------------------------------------------------
 // 2e. Reading another device's objects (DS-RP-A, DS-RPM-A)
@@ -1597,13 +2066,16 @@ static void LocalBroadcastConnString(uint8_t out[6]) {
 // asked for by hand, which keeps the build to the two commands in the README.
 // -----------------------------------------------------------------------------
 
-static SimpleUDP g_udp;
+// One socket per IP data link; only the active data link's is opened.
+static SimpleUDP g_udp;    // --datalink ipv4
+static SimpleUDP6 g_udp6;  // --datalink ipv6
 
 // The peer, as this controller knows it. bound = we have its BACnet/IP address,
 // learned from its I-Am (HookIAm below).
 struct RemotePeer {
     bool bound;
-    uint8_t connectionString[6];          // IP[4] + UDP port[2], network order
+    uint8_t connectionString[18];         // IP[4] + UDP port[2] (BACnet/IP), or IPv6[16] + UDP port[2] (BACnet/IPv6), network order;
+                                          // TransportConnectionStringLength() of them
     uint8_t readPropertyInvokeId;         // the outstanding ReadProperty, if any
     bool readPropertyPending;
     uint8_t readPropertyMultipleInvokeId; // the outstanding ReadPropertyMultiple, if any
@@ -1674,15 +2146,18 @@ void HookIAm(const uint32_t deviceIdentifier, const uint32_t maxApduLengthAccept
     (void)sourceAddressLength;
     // Only the peer, and only when it is on this network (no router in between:
     // a remote peer would need its DNET/DADR on every read, which this example
-    // does not do).
-    if (deviceIdentifier != REMOTE_DEVICE_INSTANCE || sourceNetwork != 0 || connectionStringLength != 6) {
+    // does not do). And only on BACnet/IP or BACnet/IPv6: the replies are decoded
+    // from the UDP receive path (HandleReplyFromPeer below), which MS/TP and
+    // BACnet/SC do not have in this example - see TODO.md.
+    if (!IsIpDataLink() || deviceIdentifier != REMOTE_DEVICE_INSTANCE || sourceNetwork != 0 ||
+        connectionStringLength != TransportConnectionStringLength()) {
         return;
     }
-    if (!g_peer.bound || memcmp(g_peer.connectionString, connectionString, 6) != 0) {
-        memcpy(g_peer.connectionString, connectionString, 6);
-        printf("PEER: device %u is at %u.%u.%u.%u:%u - polling its Analog Input %u\n",
-               REMOTE_DEVICE_INSTANCE, connectionString[0], connectionString[1], connectionString[2],
-               connectionString[3], (unsigned)((connectionString[4] << 8) | connectionString[5]),
+    if (!g_peer.bound || memcmp(g_peer.connectionString, connectionString, connectionStringLength) != 0) {
+        memcpy(g_peer.connectionString, connectionString, connectionStringLength);
+        char peerText[64];
+        printf("PEER: device %u is at %s - polling its Analog Input %u\n",
+               REMOTE_DEVICE_INSTANCE, AddressText(connectionString, peerText, sizeof(peerText)),
                REMOTE_ANALOG_INPUT_INSTANCE);
         // A device at a new address may be a different one: try
         // ReadPropertyMultiple again.
@@ -1745,8 +2220,8 @@ static void PollPeer() {
     const uint32_t elementCount = useReadPropertyMultiple ? 2 : 1;
     if (!BACnetStack_SendReadProperty(&invokeId,
                                       (uint8_t)(useReadPropertyMultiple ? SERVICE_READ_PROPERTY_MULTIPLE : SERVICE_READ_PROPERTY),
-                                      g_peer.connectionString, sizeof(g_peer.connectionString),
-                                      NETWORK_PORT_INSTANCE, 0, NULL, 0,
+                                      g_peer.connectionString, TransportConnectionStringLength(),
+                                      ActiveNetworkPortInstance(), 0, NULL, 0,
                                       elementCount, elements, elementCount * 15)) {
         printf("PEER: FYI could not send the %s to device %u\n",
                useReadPropertyMultiple ? "ReadPropertyMultiple" : "ReadProperty", REMOTE_DEVICE_INSTANCE);
@@ -1918,18 +2393,30 @@ static void HandleReadPropertyMultipleAck(const uint8_t* apdu, size_t apduLength
 // Anything that is not an answer from the peer to one of our two reads is left to
 // the stack alone.
 static void HandleReplyFromPeer(const uint8_t* message, size_t messageLength,
-                                const uint8_t fromIp[4], uint16_t fromPort) {
-    if (!g_peer.bound || memcmp(fromIp, g_peer.connectionString, 4) != 0 ||
-        fromPort != (uint16_t)((g_peer.connectionString[4] << 8) | g_peer.connectionString[5])) {
+                                const uint8_t* fromAddress, uint16_t fromPort) {
+    const uint8_t addressLength = TransportAddressLength();
+    if (!g_peer.bound || memcmp(fromAddress, g_peer.connectionString, addressLength) != 0 ||
+        fromPort != (uint16_t)((g_peer.connectionString[addressLength] << 8) | g_peer.connectionString[addressLength + 1])) {
         return;
     }
-    // BVLL (Annex J.2): 0x81, function, length[2]. Original-Unicast-NPDU only - the
-    // answer to a unicast request is unicast.
-    if (messageLength < 4 || message[0] != 0x81 || message[1] != 0x0A) {
-        return;
+    size_t position = 0;
+    if (g_options.dataLink == DataLink::IPv6) {
+        // BVLL-IPv6 (Annex U.2.2): 0x82, function 0x01, length[2], source VMAC[3],
+        // destination VMAC[3]: 10 octets. Original-Unicast-NPDU only - the answer
+        // to a unicast request is unicast.
+        if (messageLength < 10 || message[0] != 0x82 || message[1] != 0x01) {
+            return;
+        }
+        position = 10;
+    } else {
+        // BVLL (Annex J.2): 0x81, function, length[2]. Original-Unicast-NPDU only -
+        // the answer to a unicast request is unicast.
+        if (messageLength < 4 || message[0] != 0x81 || message[1] != 0x0A) {
+            return;
+        }
+        position = 4;
     }
     // NPDU (cl. 6.2): version 1, control, then the optional DNET/SNET fields.
-    size_t position = 4;
     if (messageLength < position + 2 || message[position] != 0x01) {
         return;
     }
@@ -2004,42 +2491,100 @@ static void HandleReplyFromPeer(const uint8_t* message, size_t messageLength,
     }
 }
 
-// --- The transport callbacks (this example owns its socket; see above) --------
+// --- The transport callbacks -------------------------------------------------
+// The stack calls these to receive and send whole BACnet messages on the active
+// data link. BACnet/IP and BACnet/IPv6 use this example's own UDP socket;
+// BACnet/SC hands the message to the hub connection (sc/ScNode). MS/TP is
+// different: its engine moves OCTETS through the byte callbacks
+// (mstp/MstpDataLink) and needs nothing here.
+
+// Receive one BACnet/IP or BACnet/IPv6 datagram.
+static uint16_t ReceiveFromUdp(uint8_t* message, const uint16_t maxMessageLength, uint8_t* sourceConnectionString,
+                               uint8_t* sourceConnectionStringLength, const uint8_t maxConnectionStringLength) {
+    const uint8_t addressLength = TransportAddressLength();
+    const uint8_t connectionStringLength = TransportConnectionStringLength();
+    if (maxConnectionStringLength < connectionStringLength) {
+        return 0;
+    }
+    uint8_t fromAddress[16] = { 0 };
+    uint16_t fromPort = 0;
+    const uint16_t received = g_options.dataLink == DataLink::IPv6
+                                  ? g_udp6.Receive(message, maxMessageLength, fromAddress, &fromPort)
+                                  : g_udp.Receive(message, maxMessageLength, fromAddress, &fromPort);
+    if (received == 0) {
+        return 0;
+    }
+    char fromText[64];
+    uint8_t fromConnectionString[18] = { 0 };
+    memcpy(fromConnectionString, fromAddress, addressLength);
+    fromConnectionString[addressLength] = (uint8_t)(fromPort >> 8);
+    fromConnectionString[addressLength + 1] = (uint8_t)(fromPort & 0xFF);
+    printf("RX %u bytes from %s (Network Port %u)", (unsigned)received,
+           AddressText(fromConnectionString, fromText, sizeof(fromText)), ActiveNetworkPortInstance());
+    CASExampleHelper::LogBacnetFrame(message, received);
+    memcpy(sourceConnectionString, fromConnectionString, connectionStringLength);
+    *sourceConnectionStringLength = connectionStringLength;
+    // Look at a COPY's worth of it (nothing here changes `message`), then hand the
+    // same bytes to the stack, which does all of its normal processing.
+    HandleReplyFromPeer(message, received, fromAddress, fromPort);
+    return received;
+}
+
 uint16_t CallbackReceiveMessage(uint8_t* message, const uint16_t maxMessageLength,
                                 uint8_t* sourceConnectionString, uint8_t* sourceConnectionStringLength,
                                 uint8_t* destinationConnectionString, uint8_t* destinationConnectionStringLength,
                                 const uint8_t maxConnectionStringLength, uint32_t* networkPortInstance) {
     (void)destinationConnectionString;
     (void)destinationConnectionStringLength;
-    if (maxConnectionStringLength < 6) {
-        return 0;
+    *networkPortInstance = ActiveNetworkPortInstance();
+    switch (g_options.dataLink) {
+        case DataLink::IPv4:
+        case DataLink::IPv6:
+            return ReceiveFromUdp(message, maxMessageLength, sourceConnectionString, sourceConnectionStringLength,
+                                  maxConnectionStringLength);
+#ifdef BBC_WITH_SC
+        case DataLink::SC: {
+            const uint16_t received = ScNode::ReceiveFromHub(message, maxMessageLength, sourceConnectionString,
+                                                             sourceConnectionStringLength, maxConnectionStringLength);
+            if (received > 0) {
+                printf("RX %u bytes from the hub (Network Port %u)\n", (unsigned)received, SC_NETWORK_PORT_INSTANCE);
+            }
+            return received;
+        }
+#endif
+        default:
+            return 0;  // MS/TP: the engine receives through the byte callbacks
     }
-    uint8_t fromIp[4] = { 0, 0, 0, 0 };
-    uint16_t fromPort = 0;
-    const uint16_t received = g_udp.Receive(message, maxMessageLength, fromIp, &fromPort);
-    if (received == 0) {
-        return 0;
-    }
-    printf("RX %u bytes from %u.%u.%u.%u:%u (Network Port %u)", (unsigned)received,
-           fromIp[0], fromIp[1], fromIp[2], fromIp[3], (unsigned)fromPort, NETWORK_PORT_INSTANCE);
-    CASExampleHelper::LogBacnetFrame(message, received);
-    memcpy(sourceConnectionString, fromIp, 4);
-    sourceConnectionString[4] = (uint8_t)(fromPort >> 8);
-    sourceConnectionString[5] = (uint8_t)(fromPort & 0xFF);
-    *sourceConnectionStringLength = 6;
-    *networkPortInstance = NETWORK_PORT_INSTANCE;
-    // Look at a COPY's worth of it (nothing here changes `message`), then hand the
-    // same bytes to the stack, which does all of its normal processing.
-    HandleReplyFromPeer(message, received, fromIp, fromPort);
-    return received;
 }
 
-uint16_t CallbackSendMessage(const uint8_t* message, const uint16_t messageLength,
-                             const uint8_t* connectionString, const uint8_t connectionStringLength,
-                             const uint32_t networkPortInstance, const bool broadcast) {
-    if (networkPortInstance != NETWORK_PORT_INSTANCE) {
+// Send on BACnet/IPv6: to one peer, or - a broadcast - to the multicast group.
+static uint16_t SendToUdp6(const uint8_t* message, const uint16_t messageLength, const uint8_t* connectionString,
+                           const uint8_t connectionStringLength, const bool broadcast) {
+    char destinationText[64];
+    // A BACnet/IPv6 broadcast carries no address (Annex U): the multicast group is
+    // this example's to choose, and it is the link-local FF02::BAC0.
+    if (broadcast || connectionString == NULL || connectionStringLength == 0) {
+        const uint16_t sent = g_udp6.SendMulticast(message, messageLength);
+        printf("TX %u bytes to [ff02::bac0]:%u (multicast broadcast) (Network Port %u)", (unsigned)sent,
+               (unsigned)g_udp6.GetLocalPort(), IPV6_NETWORK_PORT_INSTANCE);
+        CASExampleHelper::LogBacnetFrame(message, messageLength);
+        return sent;
+    }
+    if (connectionStringLength < 18) {
         return 0;
     }
+    const uint16_t port = (uint16_t)((connectionString[16] << 8) | connectionString[17]);
+    const uint16_t sent = g_udp6.Send(connectionString, port, message, messageLength);
+    printf("TX %u bytes to %s (Network Port %u)", (unsigned)sent,
+           AddressText(connectionString, destinationText, sizeof(destinationText)), IPV6_NETWORK_PORT_INSTANCE);
+    CASExampleHelper::LogBacnetFrame(message, messageLength);
+    return sent;
+}
+
+// Send on BACnet/IP: to one peer, or - no address - to the local subnet broadcast.
+static uint16_t SendToUdp(const uint8_t* message, const uint16_t messageLength, const uint8_t* connectionString,
+                          const uint8_t connectionStringLength, const bool broadcast) {
+    char destinationText[64];
     uint8_t destination[6];
     bool isBroadcast = broadcast;
     if (connectionString == NULL || connectionStringLength == 0) {
@@ -2053,19 +2598,129 @@ uint16_t CallbackSendMessage(const uint8_t* message, const uint16_t messageLengt
     }
     const uint16_t port = (uint16_t)((destination[4] << 8) | destination[5]);
     const uint16_t sent = g_udp.Send(destination, port, message, messageLength);
-    printf("TX %u bytes to %u.%u.%u.%u:%u%s (Network Port %u)", (unsigned)sent,
-           destination[0], destination[1], destination[2], destination[3], (unsigned)port,
+    printf("TX %u bytes to %s%s (Network Port %u)", (unsigned)sent,
+           AddressText(destination, destinationText, sizeof(destinationText)),
            isBroadcast ? " (broadcast)" : "", NETWORK_PORT_INSTANCE);
     CASExampleHelper::LogBacnetFrame(message, messageLength);
     return sent;
 }
 
-// The start-up / restart I-Am, to the local subnet broadcast.
-static void SendIAmToLocalSubnet() {
-    uint8_t broadcastConn[6];
-    LocalBroadcastConnString(broadcastConn);
-    BACnetStack_SendIAm(g_deviceInstance, broadcastConn, sizeof(broadcastConn), NETWORK_PORT_INSTANCE,
-                        true /*broadcast*/, 0 /*local network*/, NULL, 0);
+uint16_t CallbackSendMessage(const uint8_t* message, const uint16_t messageLength,
+                             const uint8_t* connectionString, const uint8_t connectionStringLength,
+                             const uint32_t networkPortInstance, const bool broadcast) {
+    if (networkPortInstance != ActiveNetworkPortInstance()) {
+        return 0;
+    }
+    switch (g_options.dataLink) {
+        case DataLink::IPv4:
+            return SendToUdp(message, messageLength, connectionString, connectionStringLength, broadcast);
+        case DataLink::IPv6:
+            return SendToUdp6(message, messageLength, connectionString, connectionStringLength, broadcast);
+#ifdef BBC_WITH_SC
+        case DataLink::SC: {
+            const uint16_t sent = ScNode::SendToHub(message, messageLength, connectionString,
+                                                      connectionStringLength);
+            printf("TX %u bytes to the hub%s (Network Port %u)\n", (unsigned)messageLength,
+                   broadcast ? " (broadcast)" : "", SC_NETWORK_PORT_INSTANCE);
+            return sent;
+        }
+#endif
+        default:
+            // MS/TP: the engine sends through the byte callbacks. A message that
+            // arrives here was sent before the engine started (it starts on the
+            // first BACnetStack_Tick after the callbacks are registered), and there
+            // is no wire to put it on yet.
+            return 0;
+    }
+}
+
+// BACnet/IPv6: the send functions need an 18-octet connection string even for a
+// broadcast, so this passes the multicast group FF02::BAC0 on our UDP port. With
+// broadcast=true the stack sends an Original-Broadcast-NPDU and hands it to the
+// send callback with broadcast=true and NO connection string; SendToUdp6()
+// multicasts it to FF02::BAC0.
+static void Ipv6MulticastConnectionString(uint8_t connectionString[18]) {
+    static const uint8_t BACNET_IPV6_MULTICAST_GROUP[16] = { 0xFF, 0x02, 0, 0, 0, 0, 0, 0,
+                                                             0, 0, 0, 0, 0, 0, 0xBA, 0xC0 };
+    memcpy(connectionString, BACNET_IPV6_MULTICAST_GROUP, 16);
+    connectionString[16] = (uint8_t)(g_options.udpPort >> 8);
+    connectionString[17] = (uint8_t)(g_options.udpPort & 0xFF);
+}
+
+// The start-up / restart I-Am, as a broadcast on the active data link. What
+// "broadcast" means is the data link's: the local subnet broadcast address
+// (BACnet/IP), the multicast group (BACnet/IPv6), station 255 (MS/TP), or the
+// hub, which sends it on to every node (BACnet/SC).
+static void SendIAmBroadcast() {
+    switch (g_options.dataLink) {
+        case DataLink::IPv4: {
+            uint8_t broadcastConnectionString[6];
+            LocalBroadcastConnString(broadcastConnectionString);
+            BACnetStack_SendIAm(g_deviceInstance, broadcastConnectionString, sizeof(broadcastConnectionString),
+                                NETWORK_PORT_INSTANCE, true /*broadcast*/, 0 /*local network*/, NULL, 0);
+            break;
+        }
+        case DataLink::IPv6: {
+            uint8_t multicastConnectionString[18];
+            Ipv6MulticastConnectionString(multicastConnectionString);
+            BACnetStack_SendIAm(g_deviceInstance, multicastConnectionString, sizeof(multicastConnectionString),
+                                IPV6_NETWORK_PORT_INSTANCE, true /*broadcast*/, 0 /*local network*/, NULL, 0);
+            break;
+        }
+        case DataLink::MSTP:
+            BACnetStack_SendIAm(g_deviceInstance, &MSTP_BROADCAST_MAC_ADDRESS, 1, MSTP_NETWORK_PORT_INSTANCE,
+                                true /*broadcast*/, 0 /*local network*/, NULL, 0);
+            break;
+        case DataLink::SC: {
+#ifdef BBC_WITH_SC
+            const std::string hubUri = ScNode::ConnectedHubUri();
+            if (!hubUri.empty()) {  // not connected yet: main() sends it when the hub connects
+                BACnetStack_SendIAm(g_deviceInstance, (const uint8_t*)hubUri.c_str(), (uint8_t)hubUri.size(),
+                                    SC_NETWORK_PORT_INSTANCE, true /*broadcast*/, 0 /*local network*/, NULL, 0);
+            }
+#endif
+            break;
+        }
+    }
+}
+
+// The start-up Who-Is (DM-DDB-A), as a broadcast on the active data link. On
+// BACnet/IP, BACnet/IPv6 and BACnet/SC it goes to the local network only (DNET
+// 0). On MS/TP it is GLOBAL (DNET 65535), so devices on the far side of an MS/TP
+// to BACnet/IP router answer too: on an MS/TP trunk, the router is often the way
+// to everything else.
+static void SendWhoIsBroadcast() {
+    static const uint16_t GLOBAL_BROADCAST_NETWORK = 65535;
+    switch (g_options.dataLink) {
+        case DataLink::IPv4: {
+            uint8_t broadcastConnectionString[6];
+            LocalBroadcastConnString(broadcastConnectionString);
+            BACnetStack_SendWhoIs(broadcastConnectionString, sizeof(broadcastConnectionString), NETWORK_PORT_INSTANCE,
+                                  true /*broadcast*/, 0, NULL, 0);
+            break;
+        }
+        case DataLink::IPv6: {
+            uint8_t multicastConnectionString[18];
+            Ipv6MulticastConnectionString(multicastConnectionString);
+            BACnetStack_SendWhoIs(multicastConnectionString, sizeof(multicastConnectionString),
+                                  IPV6_NETWORK_PORT_INSTANCE, true /*broadcast*/, 0, NULL, 0);
+            break;
+        }
+        case DataLink::MSTP:
+            BACnetStack_SendWhoIs(&MSTP_BROADCAST_MAC_ADDRESS, 1, MSTP_NETWORK_PORT_INSTANCE, true /*broadcast*/,
+                                  GLOBAL_BROADCAST_NETWORK, NULL, 0);
+            break;
+        case DataLink::SC: {
+#ifdef BBC_WITH_SC
+            const std::string hubUri = ScNode::ConnectedHubUri();
+            if (!hubUri.empty()) {
+                BACnetStack_SendWhoIs((const uint8_t*)hubUri.c_str(), (uint8_t)hubUri.size(),
+                                      SC_NETWORK_PORT_INSTANCE, true /*broadcast*/, 0, NULL, 0);
+            }
+#endif
+            break;
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -2101,52 +2756,132 @@ int main(int argc, char** argv) {
     }
 
     // --- Command line + version --------------------------------------------
-    // --help / --version print and exit, so handle them before we bind a socket
-    // or touch the stack.
-    // The DeviceCommunicationControl / ReinitializeDevice password is the source
-    // constant DCC_PASSWORD, not a command-line option, so the help must not
-    // offer --dcc-password.
-    if (CASExampleHelper::HandleHelpAndVersionArgs(argc, argv, APP_NAME, APP_VERSION,
-                                                   false,   // no --dcc-password option
-                                                   true)) { // help lists --deviceName
-        return 0;
+    // --help / --version print and exit, and a bad option is reported, before we
+    // open a socket or a serial port or touch the stack. command_line.cpp checks
+    // every option, including the ones that only make sense on another data link.
+    switch (ParseCommandLine(argc, argv, APP_NAME, APP_VERSION, &g_options)) {
+        case ParseResult::ExitSuccess: return 0;
+        case ParseResult::ExitError:   return 1;
+        case ParseResult::Run:         break;
     }
-    const uint16_t port = CASExampleHelper::ParsePortArg(argc, argv, 47808);
-    g_deviceInstance = CASExampleHelper::ParseDeviceIdArg(argc, argv, g_deviceInstance);
+    g_deviceInstance = g_options.deviceInstance;
+    // --deviceName: a bad name warns and keeps the default (command_line.cpp lets it through).
     g_deviceName = CASExampleHelper::ParseDeviceNameArg(argc, argv, DEVICE_NAME);
     CASExampleHelper::ParseXmlLogArg(argc, argv); // --xml: dump every RX/TX frame as XML instead of one line (off by default)
     CASExampleHelper::PrintVersion(APP_NAME, APP_VERSION);
+    printf("FYI: Data link: %s (Network Port %u). Run with --help for the others.\n",
+           DataLinkName(g_options.dataLink), ActiveNetworkPortInstance());
 
-    // --- Bind the BACnet/IP socket -----------------------------------------
-    // This example binds its own socket (g_udp, section 2e) rather than calling
-    // CASExampleHelper::SetupUDP(), so its receive callback can see the peer's
-    // answers to its reads.
-    if (!g_udp.Connect(port)) {
-        printf("Error: Failed to bind UDP port %u.\n", (unsigned)port);
+#ifndef BBC_WITH_SC
+    // This executable was built without BACnet/SC: CMake did not find
+    // libwebsockets, OpenSSL and zlib. Say how to get them, rather than failing
+    // somewhere obscure.
+    if (g_options.dataLink == DataLink::SC) {
+        printf("Error: this build does not include BACnet/SC (--datalink sc).\n"
+               "  BACnet/SC needs libwebsockets, OpenSSL and zlib. Rebuild with them, e.g. on Windows\n"
+               "  with vcpkg (Visual Studio ships one - run from a Developer PowerShell):\n"
+               "      cmake -B build -S .            (VCPKG_ROOT set: vcpkg.json's libraries are installed)\n"
+               "      cmake --build build --config Release\n"
+               "  On Linux: sudo apt install libwebsockets-dev libssl-dev zlib1g-dev, then the same two\n"
+               "  commands. CMake prints \"B-BC: BACnet/SC is built\" when it found them.\n"
+               "  See \"Building with BACnet/SC\" in README.md.\n");
         return 1;
     }
-    printf("FYI: Listening for BACnet/IP on UDP port %u (Network Port %u).\n",
-           (unsigned)port, NETWORK_PORT_INSTANCE);
+#else
+    // --import-cari: install a Certificate Authority's response and stop. The
+    // next start runs with the new certificate.
+    if (!g_options.importCariZip.empty()) {
+        return ScNode::ImportCari(g_options.scCertificateDirectory, g_deviceInstance, g_options.importCariZip);
+    }
+#endif
 
-    // Capture the BACnet/IP addressing the Network Port object will report.
-    g_bacnetIpUdpPort = port;
-    if (!CASExampleHelper::GetLocalIPv4(g_ipAddress, g_ipSubnetMask)) {
-        printf("FYI: could not read a local IPv4 address; Network Port IP_Address "
-               "will report 0.0.0.0.\n");
+    // --- Open the data link ------------------------------------------------
+    // Only the chosen data link is opened. This example owns each one itself:
+    // its own UDP socket for BACnet/IP and BACnet/IPv6 (rather than calling
+    // CASExampleHelper::SetupUDP(), so its receive callback can see the peer's
+    // answers to its reads - section 2e), the serial port for MS/TP, and the
+    // hub connection for BACnet/SC.
+    g_bacnetIpUdpPort = g_options.udpPort;
+    if (g_options.dataLink == DataLink::IPv4) {
+        if (!g_udp.Connect(g_options.udpPort)) {
+            printf("Error: Failed to bind UDP port %u.\n", (unsigned)g_options.udpPort);
+            return 1;
+        }
+        printf("FYI: Listening for BACnet/IP on UDP port %u (Network Port %u).\n",
+               (unsigned)g_options.udpPort, NETWORK_PORT_INSTANCE);
+        // Capture the BACnet/IP addressing the Network Port object will report.
+        if (!CASExampleHelper::GetLocalIPv4(g_ipAddress, g_ipSubnetMask)) {
+            printf("FYI: could not read a local IPv4 address; Network Port IP_Address "
+                   "will report 0.0.0.0.\n");
+        }
     }
-    double linkSpeedBitsPerSecond = 0.0;
-    if (CASExampleHelper::GetLocalLinkSpeedBitsPerSecond(&linkSpeedBitsPerSecond)) {
-        g_linkSpeedBitsPerSecond = (float)linkSpeedBitsPerSecond;
-    } else {
-        printf("FYI: could not determine the local link speed; Network Port "
-               "Link_Speed will report 0.0 (indeterminable).\n");
+    if (g_options.dataLink == DataLink::IPv6) {
+        // --interface <n>: join the multicast group on one interface only (0 = every
+        // IPv6 interface that is up).
+        if (!g_udp6.Connect(g_options.udpPort, g_options.ipv6InterfaceIndex)) {
+            printf("Error: Failed to bind UDP port %u over IPv6.\n", (unsigned)g_options.udpPort);
+            return 1;
+        }
+        printf("FYI: Listening for BACnet/IPv6 on UDP port %u (Network Port %u); joined the multicast group "
+               "FF02::BAC0 on %u interface(s).\n",
+               (unsigned)g_options.udpPort, IPV6_NETWORK_PORT_INSTANCE, (unsigned)g_udp6.GetJoinedInterfaceCount());
+        // The IPv6 Network Port reports the host's address, prefix length and
+        // default gateway (section 1b).
+        if (GetLocalIPv6Address(g_options.ipv6InterfaceIndex, &g_ipv6Address)) {
+            char addressText[64];
+            printf("FYI: IPv6 address %s/%u (Network Port %u IPv6_Address)\n",
+                   FormatIPv6Address(g_ipv6Address.address, addressText, sizeof(addressText)),
+                   (unsigned)g_ipv6Address.prefixLength, IPV6_NETWORK_PORT_INSTANCE);
+        } else {
+            printf("FYI: could not read a local IPv6 address; Network Port IPv6_Address will report ::.\n");
+        }
     }
+    if (g_options.dataLink == DataLink::IPv6 && g_ipv6Address.linkSpeedBitsPerSecond > 0.0) {
+        // The speed of the interface the IPv6 address came from (Windows).
+        g_linkSpeedBitsPerSecond = (float)g_ipv6Address.linkSpeedBitsPerSecond;
+    } else if (g_options.dataLink == DataLink::IPv4 || g_options.dataLink == DataLink::IPv6) {
+        // On POSIX the IPv6 port falls back to this too: the IPv4 helper's
+        // primary interface, which may not be the IPv6 one.
+        double linkSpeedBitsPerSecond = 0.0;
+        if (CASExampleHelper::GetLocalLinkSpeedBitsPerSecond(&linkSpeedBitsPerSecond)) {
+            g_linkSpeedBitsPerSecond = (float)linkSpeedBitsPerSecond;
+        } else {
+            printf("FYI: could not determine the local link speed; Network Port "
+                   "Link_Speed will report 0.0 (indeterminable).\n");
+        }
+    }
+    if (g_options.dataLink == DataLink::MSTP) {
+        if (!MstpDataLink::Open(g_options.mstpPortName.c_str(), g_options.mstpBaudRate)) {
+            return 1;  // the reason has been printed
+        }
+        printf("FYI: MS/TP on %s at %u baud, MAC %u, Max_Master %u, Max_Info_Frames %u (Network Port %u).\n",
+               g_options.mstpPortName.c_str(), g_options.mstpBaudRate, (unsigned)g_options.mstpMacAddress,
+               (unsigned)g_options.mstpMaxMaster, (unsigned)g_options.mstpMaxInfoFrames,
+               MSTP_NETWORK_PORT_INSTANCE);
+#if defined(_WIN32)
+        // MS/TP's timers are a few milliseconds long, and the main loop sleeps
+        // 1 ms per pass. Windows' default timer tick is 15.6 ms, which would make
+        // that sleep 15 ms and the station miss its token. timeBeginPeriod(1)
+        // asks for a 1 ms tick for as long as the program runs.
+        timeBeginPeriod(1);
+#endif
+    }
+#ifdef BBC_WITH_SC
+    if (g_options.dataLink == DataLink::SC) {
+        // The certificates come first. Without an operational certificate there
+        // is nothing to connect with: the request zip has been made and how to go
+        // on has been printed.
+        if (!ScNode::PrepareCertificates(g_options.scCertificateDirectory, g_deviceInstance, g_deviceName)) {
+            return 1;
+        }
+    }
+#endif
 
     // --- Register callbacks -------------------------------------------------
     // The time callback is shared boilerplate (RegisterCommonCallbacks also
     // registers the helper's transport callbacks; the two calls after it replace
-    // those with this example's own, which name NETWORK_PORT_INSTANCE - the stack
-    // identifies a link by its Network Port INSTANCE).
+    // those with this example's own, which name the active data link's Network
+    // Port - the stack identifies a link by its Network Port INSTANCE).
     CASExampleHelper::RegisterCommonCallbacks();
     BACnetStack_RegisterCallbackReceiveMessageForPort(CallbackReceiveMessage);
     BACnetStack_RegisterCallbackSendMessageForPort(CallbackSendMessage);
@@ -2181,6 +2916,14 @@ int main(int argc, char** argv) {
     BACnetStack_RegisterCallbackCompleteBackup(CompleteBackup);
     BACnetStack_RegisterCallbackPrepareRestore(PrepareRestore);
     BACnetStack_RegisterCallbackCompleteRestore(CompleteRestore);
+    // The Network Port Command property (DISCARD_CHANGES, and GENERATE_CSR_FILE
+    // on the BACnet/SC port).
+    BACnetStack_RegisterCallbackNetworkPortCommand(NetworkPortCommand);
+    // MS/TP: the engine's byte callbacks. From the first BACnetStack_Tick() after
+    // the MS/TP Network Port exists, the stack runs the token ring itself.
+    if (g_options.dataLink == DataLink::MSTP) {
+        MstpDataLink::RegisterCallbacks();
+    }
 
     // --- Create the device --------------------------------------------------
     if (!BACnetStack_AddDevice(g_deviceInstance)) {
@@ -2276,7 +3019,12 @@ int main(int argc, char** argv) {
     // networkNumber 0 with quality "unknown" describes a local port that has not
     // learned its network number - the right answer for a device that is not a
     // router and has not been told one.
-    if (!BACnetStack_AddNetworkPortObject(
+    //
+    // ONE Network Port, the active data link's (section 1b). The stack serves its
+    // Network_Type-specific properties and asks the Get callbacks for the values
+    // only the application knows.
+    if (g_options.dataLink == DataLink::IPv4 &&
+        !BACnetStack_AddNetworkPortObject(
             g_deviceInstance, NETWORK_PORT_INSTANCE,
             NETWORK_PORT_NETWORK_TYPE_IPV4,
             NETWORK_PORT_PROTOCOL_LEVEL_BACNET_APPLICATION,
@@ -2286,6 +3034,48 @@ int main(int argc, char** argv) {
         printf("Error: Failed to add Network Port 1 (Vermilion).\n");
         return 1;
     }
+    // BACnet/IPv6: IPv6_Address, IPv6_Prefix_Length, BACnet_IPv6_UDP_Port and
+    // IPv6_Default_Gateway come from the Get callbacks; MAC_Address (the 3-octet
+    // VMAC, from the device instance) and the multicast address from the stack.
+    if (g_options.dataLink == DataLink::IPv6 &&
+        !BACnetStack_AddNetworkPortObject(g_deviceInstance, IPV6_NETWORK_PORT_INSTANCE,
+                                          NETWORK_PORT_NETWORK_TYPE_IPV6,
+                                          NETWORK_PORT_PROTOCOL_LEVEL_BACNET_APPLICATION, 0,
+                                          NETWORK_NUMBER_QUALITY_UNKNOWN, NETWORK_PORT_REFERENCE_PORT_NONE)) {
+        printf("Error: Failed to add Network Port %u (Cerulean).\n", IPV6_NETWORK_PORT_INSTANCE);
+        return 1;
+    }
+    // MS/TP: MAC_Address, Max_Master, Max_Info_Frames and Link_Speed (the baud
+    // rate) come from the Get callbacks - and the MS/TP engine reads its own
+    // settings from them too.
+    if (g_options.dataLink == DataLink::MSTP &&
+        !BACnetStack_AddNetworkPortObject(g_deviceInstance, MSTP_NETWORK_PORT_INSTANCE,
+                                          NETWORK_PORT_NETWORK_TYPE_MSTP,
+                                          NETWORK_PORT_PROTOCOL_LEVEL_BACNET_APPLICATION, 0,
+                                          NETWORK_NUMBER_QUALITY_UNKNOWN, NETWORK_PORT_REFERENCE_PORT_NONE)) {
+        printf("Error: Failed to add Network Port %u (Amber).\n", MSTP_NETWORK_PORT_INSTANCE);
+        return 1;
+    }
+    // Link_Speed is OPTIONAL on the stack's BACnet/IPv6 and MS/TP Network Ports:
+    // without this a read answers unknown-property and the Get callback is never
+    // asked. (On MS/TP it is the baud rate; checked through an MS/TP router.)
+    if (g_options.dataLink == DataLink::IPv6 || g_options.dataLink == DataLink::MSTP) {
+        const uint32_t dataLinkPortInstance = ActiveNetworkPortInstance();
+        if (!BACnetStack_SetPropertyEnabled(g_deviceInstance, OBJECT_TYPE_NETWORK_PORT, dataLinkPortInstance,
+                                            PROPERTY_IDENTIFIER_LINK_SPEED, true)) {
+            printf("Error: Failed to enable Link_Speed on Network Port %u.\n", dataLinkPortInstance);
+            return 1;
+        }
+    }
+#ifdef BBC_WITH_SC
+    // BACnet/SC: the port, its hubs, its timers and its certificate Files 2-5 -
+    // sc/ScNode.cpp has the order the stack needs them in.
+    if (g_options.dataLink == DataLink::SC &&
+        !ScNode::AddNetworkPort(g_deviceInstance, SC_NETWORK_PORT_INSTANCE, g_options.scPrimaryHubUri,
+                                g_options.scFailoverHubUri)) {
+        return 1;  // the reason has been printed
+    }
+#endif
 
     // --- Enable the OPTIONAL properties we choose to expose ------------------
     // The stack automatically enables an object's REQUIRED properties when the
@@ -2394,30 +3184,37 @@ int main(int argc, char** argv) {
     //    by ADDRESS (the form the stack can actually send to). The MAC is the
     //    BACnet/IP recipient: four IP octets followed by the two-octet UDP port.
     //    validDays 0x7F = every day; the time window 00:00:00 - 23:59:59 = always.
-    uint8_t recipientMac[6];
-    if (RECIPIENT_USE_BROADCAST) {
-        LocalBroadcastConnString(recipientMac);
-    } else {
-        memcpy(recipientMac, RECIPIENT_IP, 4);
-        recipientMac[4] = (uint8_t)(g_bacnetIpUdpPort >> 8);
-        recipientMac[5] = (uint8_t)(g_bacnetIpUdpPort & 0xFF);
-    }
-    const uint8_t validDaysAll = 0x7F;
-    if (!BACnetStack_AddRecipientToNotificationClass(
-            g_deviceInstance, NOTIFICATION_CLASS_INSTANCE,
-            validDaysAll,
-            0, 0, 0, 0,         // from 00:00:00.00
-            23, 59, 59, 99,     // to   23:59:59.99
-            RECIPIENT_PROCESS_IDENTIFIER,
-            false,              // issue UNCONFIRMED notifications (works to a broadcast)
-            true, true, true,   // notify on to-offnormal, to-fault, to-normal
-            false, 0,           // NOT using the device choice
-            true,               // use the ADDRESS choice
-            0,                  // network number 0 = this local network
-            recipientMac, sizeof(recipientMac))) {
-        printf("Error: could not seed the Notification Class recipient (Crimson).\n");
-        return 1;
-    }
+    //
+    //    BACnet/IP only. On the other data links Notification Class 1 starts with
+    //    an EMPTY Recipient_List, and a management station writes one (it is
+    //    writable, below) - the address form of a recipient is the data link's own
+    //    MAC, and a broadcast recipient means something different on each.
+    if (g_options.dataLink == DataLink::IPv4) {
+        uint8_t recipientMac[6];
+        if (RECIPIENT_USE_BROADCAST) {
+            LocalBroadcastConnString(recipientMac);
+        } else {
+            memcpy(recipientMac, RECIPIENT_IP, 4);
+            recipientMac[4] = (uint8_t)(g_bacnetIpUdpPort >> 8);
+            recipientMac[5] = (uint8_t)(g_bacnetIpUdpPort & 0xFF);
+        }
+        const uint8_t validDaysAll = 0x7F;
+        if (!BACnetStack_AddRecipientToNotificationClass(
+                g_deviceInstance, NOTIFICATION_CLASS_INSTANCE,
+                validDaysAll,
+                0, 0, 0, 0,         // from 00:00:00.00
+                23, 59, 59, 99,     // to   23:59:59.99
+                RECIPIENT_PROCESS_IDENTIFIER,
+                false,              // issue UNCONFIRMED notifications (works to a broadcast)
+                true, true, true,   // notify on to-offnormal, to-fault, to-normal
+                false, 0,           // NOT using the device choice
+                true,               // use the ADDRESS choice
+                0,                  // network number 0 = this local network
+                recipientMac, sizeof(recipientMac))) {
+            printf("Error: could not seed the Notification Class recipient (Crimson).\n");
+            return 1;
+        }
+    }  // BACnet/IP only
 
     // 4) Turn on intrinsic event reporting for Diamond, routed through Crimson.
     if (!BACnetStack_SetAlarmsAndEventsForObjectEnabled(
@@ -2706,18 +3503,44 @@ int main(int argc, char** argv) {
 
     // Who-Is is answered automatically. The spec also requires a device to
     // announce itself on start-up, so broadcast an unsolicited I-Am now (to the
-    // local subnet broadcast - the Network Port's own network).
-    SendIAmToLocalSubnet();
-
-    // A B-BC must also be able to DISCOVER other devices (DM-DDB-A), so broadcast
-    // a Who-Is on start-up - every device on the subnet answers with its I-Am.
-    uint8_t broadcastConn[6];
-    LocalBroadcastConnString(broadcastConn);
-    BACnetStack_SendWhoIs(broadcastConn, sizeof(broadcastConn), NETWORK_PORT_INSTANCE,
-                          true /*broadcast*/, 0, NULL, 0);
+    // Network Port's own network). A B-BC must also be able to DISCOVER other
+    // devices (DM-DDB-A), so broadcast a Who-Is too - every device that hears it
+    // answers with its I-Am.
+    //
+    // NOW on BACnet/IP and BACnet/IPv6. LATER on the other two, which have no
+    // wire to send on yet:
+    //   MS/TP     - the engine starts on the first BACnetStack_Tick(), and a
+    //               station may only send while it holds the token. Sent once it
+    //               has joined the token ring (or after MSTP_ANNOUNCE_TIMEOUT).
+    //   BACnet/SC - every message goes through the hub. Sent once the hub
+    //               connection is up (and again after a reconnect).
+    bool announcementPending = true;
+    const std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
+    static const uint32_t MSTP_ANNOUNCE_TIMEOUT_MILLISECONDS = 10000;
+    static const uint32_t MSTP_STATUS_INTERVAL_MILLISECONDS = 10000;
+    std::chrono::steady_clock::time_point lastMstpStatus = startTime;
+    static const uint32_t MSTP_TOKEN_RING_SNAPSHOT_MILLISECONDS = 60000;
+    bool wasInTokenRing = false;
+    bool tokenRingSnapshotPending = false;
+    std::chrono::steady_clock::time_point joinedTokenRingTime = startTime;
+    if (IsIpDataLink()) {
+        SendIAmBroadcast();
+        SendWhoIsBroadcast();
+        announcementPending = false;
+    }
 
     printf("FYI: Device %u (\"%s\") ready. Vendor ID %u. Press 'h' for help.\n",
            g_deviceInstance, g_deviceName, VENDOR_IDENTIFIER);
+    // The tutorial ships with no password so every client can try the
+    // DM-DCC-B / DM-RD-B services. Say so, every start: on BACnet/SC that
+    // password is all that stands between any peer on the hub and rewriting
+    // and activating this device's certificate Files.
+    if (DCC_PASSWORD == NULL || DCC_PASSWORD[0] == '\0') {
+        printf("Warning: no DeviceCommunicationControl / ReinitializeDevice password (DCC_PASSWORD in main.cpp "
+               "is empty): any BACnet client can silence or restart this device%s. Set one before using it "
+               "outside a test bench.\n",
+               g_options.dataLink == DataLink::SC ? ", or replace and activate its BACnet/SC certificates" : "");
+    }
 
     // --- Run the stack ------------------------------------------------------
     // BACnetStack_Tick() processes incoming messages and timers. Call it
@@ -2726,8 +3549,63 @@ int main(int argc, char** argv) {
     while (running) {
         BACnetStack_Tick();
 
+        // --- The data link's own work -----------------------------------------
+        if (g_options.dataLink == DataLink::MSTP) {
+            // Run the MS/TP engine. It must run at least every few milliseconds -
+            // the token, and every reply, is timed. This loop sleeps 1 ms a pass.
+            MstpDataLink::Loop(MSTP_NETWORK_PORT_INSTANCE);
+            const bool inTokenRing = MstpDataLink::IsInTokenRing(MSTP_NETWORK_PORT_INSTANCE);
+            if (announcementPending &&
+                (inTokenRing || MillisecondsSince(startTime) > MSTP_ANNOUNCE_TIMEOUT_MILLISECONDS)) {
+                printf("MS/TP: %s - sending the start-up I-Am and Who-Is.\n",
+                       inTokenRing ? "in the token ring" : "no token ring yet");
+                SendIAmBroadcast();
+                SendWhoIsBroadcast();
+                announcementPending = false;
+            }
+            // Joining or leaving the token ring is worth a line with the
+            // counters - and so is one more look a minute after joining, which
+            // shows the token keeps coming round (frames sent and heard climb).
+            if (inTokenRing != wasInTokenRing) {
+                wasInTokenRing = inTokenRing;
+                printf("MS/TP: %s the token ring.\n", inTokenRing ? "joined" : "LEFT");
+                MstpDataLink::PrintCounters(MSTP_NETWORK_PORT_INSTANCE);
+                if (inTokenRing) {
+                    joinedTokenRingTime = std::chrono::steady_clock::now();
+                    tokenRingSnapshotPending = true;
+                }
+            }
+            if (inTokenRing && tokenRingSnapshotPending &&
+                MillisecondsSince(joinedTokenRingTime) > MSTP_TOKEN_RING_SNAPSHOT_MILLISECONDS) {
+                tokenRingSnapshotPending = false;
+                printf("MS/TP: one minute in the token ring:\n");
+                MstpDataLink::PrintCounters(MSTP_NETWORK_PORT_INSTANCE);
+            }
+            // While the station has not found the token ring, say what the
+            // engine sees, so a wrong baud rate or wiring is easy to spot.
+            if (!inTokenRing && MillisecondsSince(lastMstpStatus) > MSTP_STATUS_INTERVAL_MILLISECONDS) {
+                lastMstpStatus = std::chrono::steady_clock::now();
+                printf("MS/TP: not in a token ring yet:\n");
+                MstpDataLink::PrintCounters(MSTP_NETWORK_PORT_INSTANCE);
+            }
+        }
+#ifdef BBC_WITH_SC
+        if (g_options.dataLink == DataLink::SC) {
+            // Move WebSocket frames, and tell the stack about connection changes.
+            ScNode::Service();
+            if (ScNode::TakeHubConnectedEvent()) {
+                printf("BACnet/SC: connected to the hub %s - sending I-Am and Who-Is.\n",
+                       ScNode::ConnectedHubUri().c_str());
+                SendIAmBroadcast();
+                SendWhoIsBroadcast();
+                announcementPending = false;
+            }
+        }
+#endif
+
         // DS-RP-A / DS-RPM-A: read the peer's sensor when a poll is due, and
-        // notice when it has gone quiet (section 2e).
+        // notice when it has gone quiet (section 2e). BACnet/IP and BACnet/IPv6
+        // only (HookIAm binds the peer only there).
         PollPeer();
 
         // --- Deferred restart (DM-RD-B) -------------------------------------
@@ -2767,7 +3645,7 @@ int main(int argc, char** argv) {
             // Both kinds re-announce: a restarted device must issue an I-Am so
             // clients that had it bound learn it is back (and re-bind if its
             // address changed).
-            SendIAmToLocalSubnet();
+            SendIAmBroadcast();
             printf("Restart: complete. Device %u is back.\n", g_deviceInstance);
         }
 
@@ -2815,6 +3693,14 @@ int main(int argc, char** argv) {
                 }
                 break;
             }
+            case CASExampleHelper::KeyCommand::Metrics:
+                // 'm': the MS/TP engine's counters (frames, tokens, errors).
+                if (g_options.dataLink == DataLink::MSTP) {
+                    MstpDataLink::PrintCounters(MSTP_NETWORK_PORT_INSTANCE);
+                } else {
+                    printf("'m' shows the MS/TP counters (--datalink mstp).\n");
+                }
+                break;
             case CASExampleHelper::KeyCommand::None:
             default:
                 break;
@@ -2829,5 +3715,12 @@ int main(int argc, char** argv) {
 
     CASExampleHelper::RestoreInput();
     g_udp.Disconnect();
+    g_udp6.Disconnect();
+    if (g_options.dataLink == DataLink::MSTP) {
+        MstpDataLink::Close();
+#if defined(_WIN32)
+        timeEndPeriod(1);
+#endif
+    }
     return 0;
 }
