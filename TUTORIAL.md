@@ -147,11 +147,72 @@ know before you copy it:
    client reading `Present_Value` gets a value, and `Reliability` tells it how
    far to trust it.
 
+4. **Only on the data links whose bytes you see.** On BACnet/IP and
+   BACnet/IPv6 every datagram passes through this example's receive callback
+   whole. On MS/TP the stack's own engine frames the bytes, and on BACnet/SC
+   the message arrives inside a hub's WebSocket frame; this example does not
+   decode the reply there, so section 2e runs on `ipv4` and `ipv6` only (see
+   [TODO.md](TODO.md)).
+
 The peer's address is learned from its I-Am with `BACnetStack_RegisterHookIAm`
 (the hook runs after the stack has updated its own Device Address Binding
 table). The example only addresses a peer on its own network; a peer behind a
 router needs its SNET/SADR passed as `destinationNetwork` /
 `destinationAddress` on every read.
+
+### Running on another data link
+
+`--datalink` picks the data link at start-up; everything above the data link
+is the same code. What changes per data link is in four places in `main.cpp`:
+
+1. **The Network Port object** (section 1b, and "Add the Network Port object"
+   in `main()`). Each data link has its own instance - 1 BACnet/IP, 2
+   BACnet/IPv6, 3 MS/TP, 4 BACnet/SC - and the device creates only the active
+   one. `ActiveNetworkPortInstance()` is the number every transport callback
+   and every `BACnetStack_Send*` call names: the stack identifies a link by its
+   Network Port instance, so a send that names the wrong one goes nowhere.
+2. **What the port's properties say.** The stack serves most of a Network Port
+   itself, and asks the Get callbacks for what only the application knows -
+   the host's IPv6 address, the MS/TP station address. The `GetDataLinkPort*`
+   helpers in section 1b answer those, and each Get callback calls its helper
+   first. On MS/TP the stack's engine *reads its own configuration* through
+   them: `MAC_Address`, `Max_Master`, `Max_Info_Frames` and `Link_Speed` are
+   how `--mstp-mac`, `--mstp-max-master`, `--mstp-max-info-frames` and
+   `--mstp-baud` reach the token ring.
+3. **The transport callbacks** (end of section 2e). BACnet/IP and BACnet/IPv6
+   send and receive whole datagrams on this example's sockets; BACnet/SC hands
+   whole messages to the hub connection (`sc/ScNode.cpp`). MS/TP is the odd
+   one out: the stack runs the token ring in **byte mode** and moves octets
+   through three other callbacks (`mstp/MstpDataLink.cpp`), and the main loop
+   must call `BACnetStack_LoopMSTP()` every millisecond or two.
+4. **What a broadcast is.** The local subnet broadcast address (BACnet/IP),
+   no address at all - the multicast group FF02::BAC0 (BACnet/IPv6), station
+   255 (MS/TP), or the hub's URI (BACnet/SC: the hub sends it on to every
+   node). `SendIAmBroadcast()` and `SendWhoIsBroadcast()` hold all four.
+
+On BACnet/IPv6 the example cannot start a broadcast at all at this stack
+version: the send functions need a connection string, and the IPv6 data link
+only broadcasts a message without one (TODO.md). So there it sends no start-up
+I-Am or Who-Is - it only answers Who-Is, which the stack multicasts.
+
+Timing differs too. On BACnet/IP the start-up I-Am goes out at once. An MS/TP station may only send while it holds the token, so the
+example waits until it has joined the token ring; a BACnet/SC node has
+nowhere to send until the hub has accepted it, so the example waits for that.
+
+**BACnet/SC rules this example follows** - they hold for any application that
+connects the stack to a hub itself:
+
+- Never call a `BACnetStack_*` function from a libwebsockets callback. The
+  stack's callbacks (`InitiateWebsocket`, `SendMessage`) only queue work; the
+  main loop does it and reports connection changes with
+  `BACnetStack_SetBACnetSCWebSocketStatus`.
+- Keep one TLS context for the life of the program. libwebsockets' OpenSSL
+  set-up is global, and making and destroying contexts per connection leaks
+  and races.
+- Enforce the 1600-octet maximum message size on what you receive, before it
+  reaches the stack - the same value given to `BACnetStack_SetBACnetSCSettings`.
+- The send callback must return the number of octets it accepted - the
+  message length - not a boolean.
 
 ### Adding a Trend Log
 
@@ -182,7 +243,7 @@ router needs its SNET/SADR passed as `destinationNetwork` /
 | Multi-State Output | `Object_Name`, `Number_Of_States`, `Relinquish_Default` | same priority-array pattern |
 | Analog Value (alarm-capable) | `Object_Name`, `Units` | `Present_Value` writable; `Event_State` genuinely computed once an intrinsic algorithm is armed |
 | Notification Class | `Object_Name` | `Priority`/`Ack_Required`/`Recipient_List` held by the stack's own host-configuration API (`AddNotificationClassObject` / `AddRecipientToNotificationClass`), not a `GetProperty*` callback |
-| Network Port | `Object_Name`, `Out_Of_Service`, `Network_Type`, `Protocol_Level`, `Changes_Pending` | BACnet/IP addressing via `GetPropertyOctetString` |
+| Network Port | `Object_Name`, `Out_Of_Service`, `Network_Type`, `Protocol_Level`, `Changes_Pending` | BACnet/IP addressing via `GetPropertyOctetString`; BACnet/IPv6 address and gateway (`GetPropertyOctetString`), prefix length and UDP port (`GetPropertyUnsignedInteger`); MS/TP `MAC_Address` (one octet), `Max_Master`, `Max_Info_Frames`, `Link_Speed` = baud rate; BACnet/SC: nothing - the stack holds it all |
 | Schedule | `Object_Name`, `Reliability`, `Out_Of_Service` | `Present_Value`/`Effective_Period`/`Schedule_Default`/`List_Of_Object_Property_References` held by the stack's Schedule engine |
 | Calendar | `Object_Name` | Stack-held: after `AddCalendarObject` the stack stores `Date_List` (populate with `AddCalendarDateEntry` / `AddCalendarDateRangeEntry` / `AddCalendarWeekNDayEntry`) and derives `Present_Value` from the device's `Local_Date`. Make `Date_List` writable with `SetPropertyWritable(..., 23, true)` to let clients edit it |
 | File | `Object_Name`, `File_Type`, `File_Size`, `Modification_Date`, `Archive` (writable), `Read_Only` | `File_Access_Method` served by the stack |

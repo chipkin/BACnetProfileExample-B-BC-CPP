@@ -1,14 +1,98 @@
 # TODO - known gaps (each checked against the pinned stack source and/or the wire, not assumed)
 
-Stack pin: `64b2cfac5` (`6.x`, 2026-10-15, reports 6.0.23). Re-checked 2026-10-15 when the pin
-moved from `00aa2d0e` (`issues/runbook`, 6.0.22). The pin is back on `6.x`: the stack-held
-Calendars this example needed (#1758) reached `6.x`.
+Stack pin: `b79d4b5bb` (`issues/runbook`, 2026-10-28, reports 6.0.23) since 1.2.0, for the
+BACnet/IPv6 data link. Before it: `64b2cfac5` (`6.x`, 2026-10-15), re-checked 2026-10-15 when
+the pin moved from `00aa2d0e` (`issues/runbook`, 6.0.22).
 
 This example is **Profile-functional** (series `docs/GLOSSARY.md`) since 1.1.0: the Wire
 Tests prove it reading a peer (DS-RP-A, DS-RPM-A), acting on the reading, writing the peer
 (DS-WP-A, SCHED-E-B) and handling the peer going silent. No `[KNOWN GAP]` - nothing in this
 example's Profile Function is blocked by the stack at this pin. What is left is this example's
 own scope (bottom of this file).
+
+## 1.2.0 - the four data links (`--datalink`)
+
+### Stack gaps found while adding them (not filed - recorded here)
+
+- **No application broadcast on BACnet/IPv6.** On BACnet/IPv6 a broadcast is a message with
+  no connection string (the host sends it to the multicast group FF02::BAC0), but
+  `BACnetStack_SendIAm` and `BACnetStack_SendWhoIs` refuse a call without one ("ConnectionString
+  does not exist"), and with one the IPv6 data link sends a unicast: it decides "broadcast"
+  from the connection string, not from the call's `broadcast` argument. So on `--datalink ipv6`
+  this example sends no start-up I-Am or Who-Is (it prints an FYI instead). It still answers
+  a Who-Is, and the stack multicasts that I-Am. Seen on the console at `b79d4b5bb`; the
+  pre-1.2.0 `BBC_IPV6` build made the same NULL call.
+- **No way to see a reply's value on MS/TP or BACnet/SC.** Section 2e reads the peer by
+  decoding the ReadProperty-ACK in the receive callback, because the stack has no hook that
+  hands the application a confirmed-service ACK. On BACnet/IP and BACnet/IPv6 the whole
+  datagram passes through that callback; on MS/TP the stack's byte-mode engine does the
+  framing, so the application never sees the APDU, and on BACnet/SC it arrives inside the
+  hub's WebSocket frame. So DS-RP-A / DS-RPM-A run on `ipv4` and `ipv6` only. A hook that
+  delivers a ReadProperty / ReadPropertyMultiple ACK (decoded, or as APDU octets) would make
+  section 2e data-link independent.
+- **`BACNET_NETWORK_PORT_DEFAULT` is no help with several data links.** With more than one
+  data link compiled in (the default full build), the default port instance does not name
+  the MS/TP port; this example always names its Network Port instance explicitly.
+- **`docs/property-profile-reference.md` is no longer in the stack checkout** at `b79d4b5bb`
+  (it became generated output). The series' `tools/gen-objects-properties.py` reads it from
+  the submodule, so `docs/PICS.md` was regenerated against the copy at `64b2cfac5` (the
+  previous pin, in the B-SCHUB example's submodule). The generic Network Port and File rows
+  it uses did not change.
+
+### Checked, and how (Windows 11, 2026-10-28)
+
+- `ipv4` (the default): `python tests/run_wire_tests.py` - ALL WIRE TESTS PASSED.
+- `ipv6`: `python tests/ipv6_probe.py --target fe80::...%10 --multicast --interface 10` -
+  14/14, including Network Port 2 Network_Type 9, MAC_Address = the VMAC, the UDP port, the
+  16-octet IPv6_Address, and the multicast Address-Resolution. By hand: IPv6_Prefix_Length 64,
+  IPv6_Default_Gateway, IPv6_DNS_Server (the host's, as `ipconfig /all` lists it),
+  BACnet_IPv6_Multicast_Address FF02::BAC0 port 47808, APDU_Length 1476, Device
+  Max_APDU_Length_Accepted 1476.
+- `sc`: against the B-SCHUB example's hub on this PC (`wss://127.0.0.1:4443/`). First start
+  made `certs/node-cari-request.zip`; `tools/sign_cari_request.py` signed it with B-SCHUB's
+  demo CA; `--import-cari` installed it; the device connected and sent I-Am / Who-Is. Read
+  through the hub with B-SCHUB's Python BACnet/SC client: Network Port 4 "Teal", Network_Type
+  11, SC_Primary_Hub_URI, SC_Primary_Hub_Connection_Status connection-state 1 (connected) with
+  its connect timestamp, SC_Hub_Connector_State 1 (connected to primary), the certificate File
+  references 2 / 3, 4 / 5, and Files 2-5 (name, type, size, Read_Only, Modification_Date).
+- `mstp`: on a USB-to-RS-485 adapter (CP210x, COM3) wired to a live segment with an MS/TP
+  to BACnet/IP router. A passive listen first found the segment at 38400 baud with stations
+  0 and 10 passing the token; the example ran as MAC 12 (`--deviceID 389105`: station 10
+  already answers as device 389005). It joined the ring; one minute later its counters read
+  2466 frames heard (1086 for it), 1917 sent, 0 dropped, 0 octets lost, last frame a Token
+  from 10 to 12. From BACnet/IP, a global Who-Is to the subnet broadcast came back as an
+  I-Am from 389105 via router 192.168.3.107, SNET 5, SADR 0C; ReadProperty through the
+  router (DNET 5, DADR 0C) read Object_Name, Max_APDU_Length_Accepted 480,
+  Application_Software_Version 1.2.0, and Network Port 3: "Amber", Network_Type 2,
+  MAC_Address 0C, Max_Master 127, Max_Info_Frames 1, Link_Speed 38400.0, APDU_Length 480.
+  Only 38400 was run on the wire (the segment's rate); the router was not reconfigured.
+
+### Not checked yet
+
+- Linux and macOS builds of `common/SimpleSerial` (POSIX termios), of `ipv6/LocalIPv6Address`
+  (including its `/etc/resolv.conf` DNS server), and of the BACnet/SC build with distribution
+  libwebsockets packages. Only Windows was built and run for 1.2.0.
+- 76800 baud on Linux: termios has no `B76800` on most systems, so `SimpleSerial` refuses it
+  there; a `termios2` / `BOTHER` custom rate would be needed.
+- A USB serial adapter reports a write as done when the USB transfer completes, a little
+  before the adapter's UART has sent the last octet. Not measured; if a station misses
+  replies at high baud rates, look here first.
+- The BACnet/SC certificate procedures over BACnet (AtomicWriteFile to Files 2-4, then
+  ReinitializeDevice ACTIVATE_CHANGES; Network Port Command GENERATE_CSR_FILE): the code is
+  the B-SCHUB example's `CertStore`, but not exercised against this example.
+- The BACnet/SC failover hub.
+- Writing the MS/TP port's Max_Master / Max_Info_Frames and activating them.
+- MS/TP at baud rates other than 38400 on the wire (the others are accepted by `--mstp-baud`
+  and opened by `SimpleSerial`, but no segment ran at them).
+- Writing File_Size of the BACnet/SC certificate Files 2-4 over BACnet: the Set callback
+  handles it (truncate / extend before an AtomicWriteFile), but whether the stack lets a
+  client write it was not tried, so `docs/objects.json` lists no writable File property.
+
+### Pending in the series
+
+- `common/` gained `SimpleUDP6` and `SimpleSerial` (`common/CHANGELOG.md`, [Unreleased]).
+  `COMMON_VERSION` is not bumped and the series is not re-synced yet: do both when this
+  branch is merged (`tools/sync-common.sh`).
 
 ## Resolved in 1.1.0
 

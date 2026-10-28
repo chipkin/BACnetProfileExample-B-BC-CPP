@@ -20,13 +20,13 @@ see [README.md](../README.md).
 | **Vendor Identifier** | 389 |
 | **Product Name** | CAS BACnet Stack Example - B-BC |
 | **Product Model Number** | CAS BACnet Stack Example - B-BC |
-| **Application Software Version** | 1.1.0 |
+| **Application Software Version** | 1.2.0 |
 | **Firmware Revision** | 6.0.23.0 (the CAS BACnet Stack version) |
 | **BACnet Protocol Version** | 1 |
 | **BACnet Protocol Revision** | 30 |
 
-**Product Description:** a BACnet/IP Building Controller built on the CAS
-BACnet Stack. It reads a humidity sensor in a peer device (ReadProperty and
+**Product Description:** a Building Controller built on the CAS BACnet Stack,
+on BACnet/IP, BACnet/IPv6, MS/TP or BACnet/SC (one at a time, chosen at start-up). It reads a humidity sensor in a peer device (ReadProperty and
 ReadPropertyMultiple), alarms on and trends that reading, and reports
 communication loss with the peer through Reliability. It presents fifteen
 objects spanning read-only sensors,
@@ -100,8 +100,9 @@ life-safety BIBB.
 | AtomicWriteFile | no | **yes** |
 | ReadRange | no | **yes** (against `Log_Buffer` of either Trend Log) |
 
-An unsolicited I-Am is broadcast to the local subnet at start-up and after a
-ReinitializeDevice restart, as well as in response to Who-Is. This device also
+An unsolicited I-Am is broadcast on the active data link at start-up and after a
+ReinitializeDevice restart, as well as in response to Who-Is (on `--datalink ipv6`
+only in response to Who-Is: see TODO.md). This device also
 initiates a Who-Is at start-up (DM-DDB-A), initiates WriteProperty when
 Schedule 1 ("Saffron") fires a transition, targeting both a local object and a
 remote peer device's object (SCHED-E-B), and initiates ReadProperty and
@@ -118,7 +119,8 @@ Segmentation is **supported in both directions**
 properties are required if, and shall be present only if, segmentation of any
 kind is supported" - they are not rows in section 11 because its generator
 lists only unconditionally required properties. `Max_APDU_Length_Accepted` is
-1476 octets, the BACnet/IP maximum. (At the previous pin, `00aa2d0e`, this
+1476 octets, the BACnet/IP maximum - and 480 with `--datalink mstp`, the MS/TP
+maximum. (At the previous pin, `00aa2d0e`, this
 example answered `no-segmentation`.)
 
 ## 6. Standard object types supported
@@ -136,10 +138,11 @@ No object is dynamically creatable or deletable.
 | Multi-state Output | 1 | Indigo | - (commandable: writable Present_Value) |
 | Analog Value | 1 | Diamond | Reliability; intrinsic OutOfRange alarming (Present_Value is read-only: it is the peer's reading) |
 | Notification Class | 1 | Crimson | writable Recipient_List (AE-CRL-B) |
-| Network Port | 1 | Vermilion | - |
+| Network Port | 1, 2, 3 or 4 | Vermilion, Cerulean, Amber or Teal | One, the active data link's (section 7). MS/TP: writable Max_Master, Max_Info_Frames. BACnet/SC: Current_Health, SC_Primary/Failover_Hub_Connection_Status |
 | Schedule | 1 | Saffron | - |
 | Calendar | 1 | Cream | Stack-held Date_List (December 25), writable; drives Schedule 1's calendar-reference exception |
 | File | 1 | Ivory | writable Archive |
+| File | 2, 3, 4, 5 | Operational Certificate, Issuer Certificate 1, Issuer Certificate 2, Certificate Signing Request | `--datalink sc` only: the BACnet/SC certificate files (2-4 written with AtomicWriteFile) |
 | Trend Log | 1 | Lilac | - (Record_Count does not increment - see [TUTORIAL.md](../TUTORIAL.md)) |
 | Trend Log Multiple | 1 | Magenta | - |
 
@@ -148,11 +151,20 @@ requires the device instance to be configurable).
 
 ## 7. Data link layer options
 
-**BACnet/IP (Annex J)**, UDP port 47808 (0xBAC0) by default, configurable at run
-time with `--port`.
+One data link at a time, chosen at start-up with `--datalink`; each has its own
+Network Port object instance, and the device has only the active one's:
 
-BBMD is not supported, Foreign Device registration is not supported, and
-BACnet/SC, MS/TP, Ethernet (Annex H) and PTP are not supported.
+| `--datalink` | Data link | Network Port | Options |
+|---|---|---|---|
+| `ipv4` (default) | **BACnet/IP (Annex J)** | 1 "Vermilion" | UDP port 47808 (0xBAC0) by default, `--port` |
+| `ipv6` | **BACnet/IPv6 (Annex U)** | 2 "Cerulean" | UDP port 47808 by default, `--port`; multicast group FF02::BAC0; `--interface` |
+| `mstp` | **MS/TP (Clause 9), master node** | 3 "Amber" | 9600, 19200, 38400, 57600, 76800 or 115200 baud; MAC 0..127 |
+| `sc` | **BACnet/SC (Annex AB), node** | 4 "Teal" | primary and failover hub; needs a build with libwebsockets |
+
+BBMD is not supported, Foreign Device registration is not supported (neither
+on BACnet/IP nor on BACnet/IPv6), and Ethernet (Annex H) and PTP are not
+supported. On BACnet/SC the device is a node only: it neither is a hub nor
+accepts direct connections.
 
 The stack's Network Port object still lists its BACnet/IP properties in
 `Property_List` - including `IP_DNS_Server`, `FD_BBMD_Address` and
@@ -335,7 +347,7 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Recipient_List | BACnetLIST of BACnetDestination | stack default, accepted (None known - a read fails with `unknown-property` or an empt) | yes |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
-### Network Port 1 "Vermilion" - BACnet/IP; Network_Type and Protocol_Level are set from BACnetStack_AddNetworkPortObject()'s arguments (IPv4, BACnet Application) at start-up, not a GetProperty callback like the object's other app-served rows; Changes_Pending is likewise computed and answered natively by the stack's Network Port object. Reliability has no fault condition this example detects, so it is accepted at the generic default (normal). Link_Speed is read once at start-up from the host's primary network interface (CASExampleHelper::GetLocalLinkSpeedBitsPerSecond) - 0.0 if the host OS can't report one, which is the spec-correct 'indeterminable' answer, not a bug
+### Network Port 1 "Vermilion" - --datalink ipv4 (the default) only: the device has one Network Port, the active data link's (README 'Data links'). BACnet/IP; Network_Type and Protocol_Level are set from BACnetStack_AddNetworkPortObject()'s arguments (IPv4, BACnet Application) at start-up, not a GetProperty callback like the object's other app-served rows; Changes_Pending is likewise computed and answered natively by the stack's Network Port object. Reliability has no fault condition this example detects, so it is accepted at the generic default (normal). Link_Speed is read once at start-up from the host's primary network interface (CASExampleHelper::GetLocalLinkSpeedBitsPerSecond) - 0.0 if the host OS can't report one, which is the spec-correct 'indeterminable' answer, not a bug
 
 | Property | Datatype | Served by | Writable |
 |---|---|---|:---:|
@@ -348,6 +360,52 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | Network_Type | BACnetNetworkType | app | no |
 | Protocol_Level | BACnetProtocolLevel | app | no |
 | Changes_Pending | Boolean | app | no |
+| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+
+### Network Port 2 "Cerulean" - --datalink ipv6 only. BACnet/IPv6 (Network_Type ipv6, 9). IPv6_Address, IPv6_Prefix_Length and IPv6_Default_Gateway are the host interface's (ipv6/LocalIPv6Address.cpp: a global address when the interface has one, else its link-local one), read once at start-up; BACnet_IPv6_UDP_Port is --port. IPv6_DNS_Server is the host's first IPv6 DNS server, one element (the interface's on Windows, /etc/resolv.conf's on POSIX); with none the app declines it and the stack reports one unconfigured entry. The stack serves MAC_Address (the 3-octet VMAC, the device instance) and the multicast address. Link_Speed (optional on this port, so enabled at start-up) as for Network Port 1. No start-up I-Am / Who-Is on this data link (TODO.md: the stack cannot send an application broadcast on BACnet/IPv6). Checked with tests/ipv6_probe.py
+
+| Property | Datatype | Served by | Writable |
+|---|---|---|:---:|
+| Object_Identifier | BACnetObjectIdentifier | stack | no |
+| Object_Name | CharacterString | app | no |
+| Object_Type | BACnetObjectType | stack | no |
+| Status_Flags | BACnetStatusFlags | stack | no |
+| Reliability | BACnetReliability | stack default, accepted (Generic Enumerated default: `0`) | no |
+| Out_Of_Service | Boolean | app | no |
+| Network_Type | BACnetNetworkType | stack | no |
+| Protocol_Level | BACnetProtocolLevel | stack | no |
+| Changes_Pending | Boolean | stack | no |
+| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+
+### Network Port 3 "Amber" - --datalink mstp only. MS/TP (Network_Type mstp, 2). MAC_Address is --mstp-mac (one octet), Link_Speed the baud rate (--mstp-baud; optional on this port, so enabled at start-up), Max_Master and Max_Info_Frames --mstp-max-master / --mstp-max-info-frames - and the stack's MS/TP engine reads its own settings from these same callbacks. Max_Master and Max_Info_Frames are writable as pending changes (Changes_Pending TRUE) that take effect on ReinitializeDevice ACTIVATE_CHANGES. APDU_Length is the stack's 480; the Device's Max_APDU_Length_Accepted reads 480 in this mode
+
+| Property | Datatype | Served by | Writable |
+|---|---|---|:---:|
+| Object_Identifier | BACnetObjectIdentifier | stack | no |
+| Object_Name | CharacterString | app | no |
+| Object_Type | BACnetObjectType | stack | no |
+| Status_Flags | BACnetStatusFlags | stack | no |
+| Reliability | BACnetReliability | stack default, accepted (Generic Enumerated default: `0`) | no |
+| Out_Of_Service | Boolean | app | no |
+| Network_Type | BACnetNetworkType | stack | no |
+| Protocol_Level | BACnetProtocolLevel | stack | no |
+| Changes_Pending | Boolean | stack | no |
+| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+
+### Network Port 4 "Teal" - --datalink sc only, and only in a build with BACnet/SC (README 'Building with BACnet/SC'). A BACnet/SC node (Network_Type secure-connect, 11) - sc/ScNode.cpp. The stack holds every BACnet/SC property: the hub URIs (--sc-hub, --sc-failover-hub), the 6-octet VMAC, the hub connection status, and the certificate File references (Files 2-5). SC_Primary_Hub_Connection_Status reads connected once the hub has accepted the device
+
+| Property | Datatype | Served by | Writable |
+|---|---|---|:---:|
+| Object_Identifier | BACnetObjectIdentifier | stack | no |
+| Object_Name | CharacterString | app | no |
+| Object_Type | BACnetObjectType | stack | no |
+| Status_Flags | BACnetStatusFlags | stack | no |
+| Reliability | BACnetReliability | stack default, accepted (Generic Enumerated default: `0`) | no |
+| Out_Of_Service | Boolean | app | no |
+| Network_Type | BACnetNetworkType | stack | no |
+| Protocol_Level | BACnetProtocolLevel | stack | no |
+| Changes_Pending | Boolean | stack | no |
+| Current_Health *(optional, enabled)* | BACnetHealth | stack | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
 
 ### Schedule 1 "Saffron" - SCHED-E-B. Present_Value, Effective_Period, Schedule_Default, List_Of_Object_Property_References, Priority_For_Writing and Status_Flags are NOT stack DEFAULTS - they are genuinely held and served by the stack's Schedule engine (BACnetStack_AddScheduleObject plus the BACnetStack_SetSchedule*/AddSchedule* configuration calls in main.cpp). List_Of_Object_Property_References has TWO entries (each BACnetStack_AddScheduleObjectPropertyReference call appends): a LOCAL one at Analog Output 1 (Chartreuse) Present_Value, and a REMOTE one at a peer device's (default instance 389002, e.g. a locally-built B-SA-CPP) Analog Output 1 Present_Value - the SCHED-E-B / F-EXTWRITE remote fan-out. Both writes are checked: the local one is inherited from B-AAC's SCHED-I-B, and the remote one is the Wire Test tests/sched_e_b_remote_peer.py. A write made before the peer is bound is kept until it binds (cas-bacnet-stack #2343, fixed at 64b2cfac5; checked by hand). One weekly transition (Monday 08:00) and one exception - a calendar reference to Calendar 1 (Cream), whose Date_List holds December 25 - are seeded at start-up; the 's' key (common/'s DemoAdvance) adds a transition for right now so the change can be observed without waiting for the wall clock
@@ -389,6 +447,66 @@ Every object this example creates, and every REQUIRED property of each (per ANSI
 | File_Size | Unsigned | app | no |
 | Modification_Date | BACnetDateTime | app | no |
 | Archive | Boolean | app | yes |
+| Read_Only | Boolean | app | no |
+| File_Access_Method | BACnetFileAccessMethod | stack | no |
+| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+
+### File 2 "Operational Certificate" - --datalink sc only: a BACnet/SC certificate file in --sc-cert-dir (PEM, File_Type application/x-pem-file; Modification_Date from the file on disk; Archive false). Written with AtomicWriteFile: a new certificate is staged, and ReinitializeDevice ACTIVATE_CHANGES checks it and puts it in place - or refuses it, changing nothing, if it would leave the device unable to connect
+
+| Property | Datatype | Served by | Writable |
+|---|---|---|:---:|
+| Object_Identifier | BACnetObjectIdentifier | stack | no |
+| Object_Name | CharacterString | app | no |
+| Object_Type | BACnetObjectType | stack | no |
+| File_Type | CharacterString | app | no |
+| File_Size | Unsigned | app | no |
+| Modification_Date | BACnetDateTime | app | no |
+| Archive | Boolean | app | no |
+| Read_Only | Boolean | app | no |
+| File_Access_Method | BACnetFileAccessMethod | stack | no |
+| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+
+### File 3 "Issuer Certificate 1" - --datalink sc only: a BACnet/SC certificate file in --sc-cert-dir (PEM, File_Type application/x-pem-file; Modification_Date from the file on disk; Archive false). Written with AtomicWriteFile: a new certificate is staged, and ReinitializeDevice ACTIVATE_CHANGES checks it and puts it in place - or refuses it, changing nothing, if it would leave the device unable to connect
+
+| Property | Datatype | Served by | Writable |
+|---|---|---|:---:|
+| Object_Identifier | BACnetObjectIdentifier | stack | no |
+| Object_Name | CharacterString | app | no |
+| Object_Type | BACnetObjectType | stack | no |
+| File_Type | CharacterString | app | no |
+| File_Size | Unsigned | app | no |
+| Modification_Date | BACnetDateTime | app | no |
+| Archive | Boolean | app | no |
+| Read_Only | Boolean | app | no |
+| File_Access_Method | BACnetFileAccessMethod | stack | no |
+| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+
+### File 4 "Issuer Certificate 2" - --datalink sc only: a BACnet/SC certificate file in --sc-cert-dir (PEM, File_Type application/x-pem-file; Modification_Date from the file on disk; Archive false). Written with AtomicWriteFile: a new certificate is staged, and ReinitializeDevice ACTIVATE_CHANGES checks it and puts it in place - or refuses it, changing nothing, if it would leave the device unable to connect
+
+| Property | Datatype | Served by | Writable |
+|---|---|---|:---:|
+| Object_Identifier | BACnetObjectIdentifier | stack | no |
+| Object_Name | CharacterString | app | no |
+| Object_Type | BACnetObjectType | stack | no |
+| File_Type | CharacterString | app | no |
+| File_Size | Unsigned | app | no |
+| Modification_Date | BACnetDateTime | app | no |
+| Archive | Boolean | app | no |
+| Read_Only | Boolean | app | no |
+| File_Access_Method | BACnetFileAccessMethod | stack | no |
+| Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |
+
+### File 5 "Certificate Signing Request" - --datalink sc only: a BACnet/SC certificate file in --sc-cert-dir (PEM, File_Type application/x-pem-file; Modification_Date from the file on disk; Archive false). Read-only: the device makes it (Network Port Command GENERATE_CSR_FILE)
+
+| Property | Datatype | Served by | Writable |
+|---|---|---|:---:|
+| Object_Identifier | BACnetObjectIdentifier | stack | no |
+| Object_Name | CharacterString | app | no |
+| Object_Type | BACnetObjectType | stack | no |
+| File_Type | CharacterString | app | no |
+| File_Size | Unsigned | app | no |
+| Modification_Date | BACnetDateTime | app | no |
+| Archive | Boolean | app | no |
 | Read_Only | Boolean | app | no |
 | File_Access_Method | BACnetFileAccessMethod | stack | no |
 | Property_List | BACnetARRAY[N] of BACnetPropertyIdentifier | stack | no |

@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - unreleased
+
+One executable, four data links, chosen at run time: `--datalink ipv4|ipv6|mstp|sc`.
+The default, `ipv4`, is the same device as 1.1.0.
+
+### Added
+
+- **`--datalink`** (`command_line.cpp`). Every option is checked: an option of
+  another data link than the chosen one, a missing `--mstp-port` / `--sc-hub`,
+  a baud rate MS/TP does not use, an MS/TP address above Max_Master - each is
+  reported with a pointer to `--help`, which documents every option.
+- **A Network Port per data link, one at a time**: 1 "Vermilion" (BACnet/IP),
+  2 "Cerulean" (BACnet/IPv6), 3 "Amber" (MS/TP), 4 "Teal" (BACnet/SC). The
+  device has only the active data link's (`main.cpp` section 1b).
+- **BACnet/IPv6 at run time** (`--datalink ipv6`, `--interface`). Network Port 2
+  serves IPv6_Address, IPv6_Prefix_Length, IPv6_Default_Gateway, IPv6_DNS_Server
+  and Link_Speed from the host (`ipv6/LocalIPv6Address.cpp`) and
+  BACnet_IPv6_UDP_Port from `--port`; the stack serves the VMAC MAC_Address.
+  `tests/ipv6_probe.py` reads Network Port 2 too (Network_Type 9, MAC_Address =
+  the VMAC). No start-up I-Am / Who-Is on this data link: the stack cannot send
+  an application broadcast on BACnet/IPv6 (TODO.md); the device answers Who-Is.
+- **MS/TP** (`--datalink mstp`, `--mstp-port`, `--mstp-baud` 9600..115200
+  including 76800, `--mstp-mac`, `--mstp-max-master`, `--mstp-max-info-frames`).
+  The stack runs the MS/TP state machines in byte mode; `mstp/MstpDataLink.cpp`
+  registers its ReceiveBytes / SendBytes / Microseconds callbacks on
+  `common/SimpleSerial` and calls `BACnetStack_LoopMSTP` every main-loop pass
+  (1 ms; `timeBeginPeriod(1)` on Windows). Network Port 3 serves MAC_Address,
+  Link_Speed (the baud rate), Max_Master and Max_Info_Frames - the last two
+  writable, as pending changes. The start-up I-Am and a global Who-Is go out
+  once the station has joined the token ring. The engine's counters are
+  printed on the `m` key, when the station joins or leaves the ring, and a
+  minute after it joins. The Device's Max_APDU_Length_Accepted is 480 in this
+  mode. Checked on a real RS-485 segment through an MS/TP to BACnet/IP router.
+- **BACnet/SC node** (`--datalink sc`, `--sc-hub`, `--sc-failover-hub`,
+  `--sc-cert-dir`, `--import-cari`), built when libwebsockets, OpenSSL and zlib
+  are found (`vcpkg.json`; `-D BBC_SC=OFF` leaves it out). `sc/ScHubConnector`
+  is a libwebsockets client - one TLS 1.3 context for the life of the program,
+  the `hub.bsc.bacnet.org` subprotocol, a 1600-octet ceiling on received
+  messages, and no BACnetStack_* call from a libwebsockets callback.
+  `sc/ScNode` adds Network Port 4, its UUID (kept in the certificate folder),
+  hubs and timers, and the certificate File objects 2-5; ReinitializeDevice
+  ACTIVATE_CHANGES checks and installs certificates written over BACnet, and
+  Network Port Command GENERATE_CSR_FILE makes a new key and request. The
+  certificates follow the B-SCHUB example's CARI flow: the first start writes
+  `certs/node-cari-request.zip` and stops; `--import-cari` installs the CA's
+  response. `tools/sign_cari_request.py` signs a request with a TEST CA.
+  A build without BACnet/SC says how to rebuild when `--datalink sc` is asked
+  for.
+- ReinitializeDevice accepts **ACTIVATE_CHANGES** (7) on every data link, so
+  pending Network Port writes can take effect.
+- A Network Port Command callback (DISCARD_CHANGES; GENERATE_CSR_FILE on the
+  BACnet/SC port).
+
+### Changed
+
+- The `BBC_IPV6` build option and `ipv6/cas_bacnet_stack_options_ipv6.h` are
+  gone: BACnet/IPv6 is `--datalink ipv6` of the one executable (there is no
+  `build-ipv6` any more).
+- Reading the peer device (section 2e, DS-RP-A / DS-RPM-A) runs on `ipv4` and
+  `ipv6` only - see TODO.md.
+- The Notification Class recipient is seeded on `ipv4` only; on the other data
+  links Recipient_List starts empty and is written by a client.
+- `common/`: `SimpleSerial` added (see `common/CHANGELOG.md`, [Unreleased]).
+
 ## [1.1.0] - unreleased
 
 The example is now **Profile-functional** (series glossary): it performs the
