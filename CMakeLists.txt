@@ -37,6 +37,12 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# --- BACnet/IPv6 --------------------------------------------------------------
+# cmake -B build-ipv6 -S . -DBBC_IPV6=ON builds the same device as a BACnet/IPv6 (Annex U) node instead of a BACnet/IP one:
+# IPv6 is then the ONLY data link the stack is built with (ipv6/cas_bacnet_stack_options_ipv6.h), the socket is
+# common/SimpleUDP6.cpp, and the executable is named BACnetExampleBBCIPv6. See ipv6/README.md.
+option(BBC_IPV6 "Build the BACnet/IPv6 (Annex U) device instead of the BACnet/IP one" OFF)
+
 # --- Locate the pieces this project ships -----------------------------------
 # The shared helper is vendored into this repository at ./common.
 if(NOT DEFINED EXAMPLES_COMMON_DIR)
@@ -64,20 +70,44 @@ endif()
 # submodules/cas-bacnet-stack/adapters/cpp/CMakeLists.txt for what each mode does.
 add_subdirectory("${CAS_STACK_DIR}/adapters/cpp" cas-bacnet-stack-adapter)
 
+# --- The stack's options, for the IPv6 build ----------------------------------
+# The stack picks its option set from source/CIBuildSettingsDefaults.h unless told otherwise, and that is the FULL target with every
+# data link. The IPv6 build forces its own header in front of every stack source (DONT_BUILD_ALL_OPTIONS says the defaults do not apply).
+if(BBC_IPV6)
+    set(BBC_STACK_OPTIONS_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/ipv6/cas_bacnet_stack_options_ipv6.h")
+    target_compile_definitions(cas_bacnet_stack_adapter PUBLIC DONT_BUILD_ALL_OPTIONS)
+    if(MSVC)
+        target_compile_options(cas_bacnet_stack_adapter PUBLIC "/FI${BBC_STACK_OPTIONS_HEADER}")
+    else()
+        target_compile_options(cas_bacnet_stack_adapter PUBLIC "-include" "${BBC_STACK_OPTIONS_HEADER}")
+    endif()
+endif()
+
 # --- The shared example helper ----------------------------------------------
 set(COMMON_SOURCES
     "${EXAMPLES_COMMON_DIR}/CASExampleHelper.cpp"
-    "${EXAMPLES_COMMON_DIR}/SimpleUDP.cpp")
+    "${EXAMPLES_COMMON_DIR}/SimpleUDP.cpp")   # CASExampleHelper's own BACnet/IP socket, which this example does not open
+if(BBC_IPV6)
+    list(APPEND COMMON_SOURCES "${EXAMPLES_COMMON_DIR}/SimpleUDP6.cpp")
+endif()
 
 # --- The executable ---------------------------------------------------------
-add_executable(BACnetExampleBBC
+if(BBC_IPV6)
+    set(BBC_TARGET_NAME BACnetExampleBBCIPv6)
+else()
+    set(BBC_TARGET_NAME BACnetExampleBBC)
+endif()
+add_executable(${BBC_TARGET_NAME}
     main.cpp
     ${COMMON_SOURCES})
+if(BBC_IPV6)
+    target_compile_definitions(${BBC_TARGET_NAME} PRIVATE BBC_IPV6)
+endif()
 
-target_include_directories(BACnetExampleBBC PRIVATE
+target_include_directories(${BBC_TARGET_NAME} PRIVATE
     "${EXAMPLES_COMMON_DIR}")
 
-target_link_libraries(BACnetExampleBBC PRIVATE CASBACnetStack::Adapter)
+target_link_libraries(${BBC_TARGET_NAME} PRIVATE CASBACnetStack::Adapter)
 
 # --- Warnings on OUR sources only -------------------------------------------
 # Apply strict warnings to the example + helper sources, but NOT to the bundled
@@ -94,5 +124,5 @@ set_source_files_properties(main.cpp ${COMMON_SOURCES}
 # --- Platform sockets -------------------------------------------------------
 # ws2_32  = Winsock (UDP); iphlpapi = GetAdaptersInfo (local broadcast address).
 if(WIN32)
-    target_link_libraries(BACnetExampleBBC PRIVATE ws2_32 iphlpapi)
+    target_link_libraries(${BBC_TARGET_NAME} PRIVATE ws2_32 iphlpapi)
 endif()

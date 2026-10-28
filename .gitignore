@@ -3,3 +3,4 @@ build/
 
 # Python bytecode from tests/ and wiretest/
 __pycache__/
+build-*/

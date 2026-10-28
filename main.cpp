@@ -101,7 +101,11 @@
 
 #include "CASExampleHelper.h"
 #include "CASBACnetStackExampleConstants.h"
+#ifdef BBC_IPV6
+#include "SimpleUDP6.h"  // BACnet/IPv6 build (cmake -DBBC_IPV6=ON): this example owns its BACnet/IPv6 socket - see section 2e
+#else
 #include "SimpleUDP.h"   // this example owns its BACnet/IP socket - see section 2e
+#endif
 #include "CASBACnetStackAdapter.h" // the CAS BACnet Stack C API (BACnetStack_*); call
                                     // LoadBACnetFunctions() before any BACnetStack_* call -
                                     // see the top of main() below.
@@ -1527,6 +1531,38 @@ bool AcknowledgeAlarm(const uint32_t deviceInstance, const uint32_t /*acknowledg
 // the directed broadcast address (IP | ~mask) followed by the UDP port in network
 // byte order. (When the mask is 0.0.0.0 - the helper's fallback - this collapses to
 // the limited broadcast 255.255.255.255.)
+#ifdef BBC_IPV6
+// BACnet/IPv6 (Annex U): the stack's connection string for a peer is its B/IPv6 address - 16 octets of IPv6 address, then
+// the 2-octet UDP port, most significant octet first - and a BACnet broadcast is sent with NO connection string, to the
+// multicast group FF02::BAC0 (SimpleUDP6::SendMulticast). The stack has no Network Port object for an IPv6 port yet
+// (cas-bacnet-stack#4611), so this build adds none and names its transport with the default port instance.
+static const uint8_t TRANSPORT_ADDRESS_LENGTH = 16;
+static const uint8_t TRANSPORT_CONNECTION_STRING_LENGTH = 18;
+static const uint32_t TRANSPORT_PORT_INSTANCE = BACNET_NETWORK_PORT_DEFAULT;
+#else
+static const uint8_t TRANSPORT_ADDRESS_LENGTH = 4;
+static const uint8_t TRANSPORT_CONNECTION_STRING_LENGTH = 6;
+static const uint32_t TRANSPORT_PORT_INSTANCE = NETWORK_PORT_INSTANCE;
+#endif
+
+// A peer's address as text, for the log: a.b.c.d:port, or [ipv6]:port.
+static const char* AddressText(const uint8_t* connectionString, char* text, const size_t textSize) {
+#ifdef BBC_IPV6
+    char digits[64] = "";
+    size_t used = 0;
+    for (int groupIndex = 0; groupIndex < 8; ++groupIndex) {
+        used += (size_t)snprintf(digits + used, sizeof(digits) - used, groupIndex == 0 ? "%x" : ":%x",
+                                 (unsigned)((connectionString[2 * groupIndex] << 8) | connectionString[2 * groupIndex + 1]));
+    }
+    snprintf(text, textSize, "[%s]:%u", digits, (unsigned)((connectionString[16] << 8) | connectionString[17]));
+#else
+    snprintf(text, textSize, "%u.%u.%u.%u:%u", connectionString[0], connectionString[1], connectionString[2],
+             connectionString[3], (unsigned)((connectionString[4] << 8) | connectionString[5]));
+#endif
+    return text;
+}
+
+#ifndef BBC_IPV6
 static void LocalBroadcastConnString(uint8_t out[6]) {
     out[0] = (uint8_t)(g_ipAddress[0] | ~g_ipSubnetMask[0]);
     out[1] = (uint8_t)(g_ipAddress[1] | ~g_ipSubnetMask[1]);
@@ -1535,6 +1571,7 @@ static void LocalBroadcastConnString(uint8_t out[6]) {
     out[4] = (uint8_t)(g_bacnetIpUdpPort >> 8);
     out[5] = (uint8_t)(g_bacnetIpUdpPort & 0xFF);
 }
+#endif // !BBC_IPV6
 
 // -----------------------------------------------------------------------------
 // 2e. Reading another device's objects (DS-RP-A, DS-RPM-A)
@@ -1554,13 +1591,18 @@ static void LocalBroadcastConnString(uint8_t out[6]) {
 // asked for by hand, which keeps the build to the two commands in the README.
 // -----------------------------------------------------------------------------
 
+#ifdef BBC_IPV6
+static SimpleUDP6 g_udp;
+#else
 static SimpleUDP g_udp;
+#endif
 
 // The peer, as this controller knows it. bound = we have its BACnet/IP address,
 // learned from its I-Am (HookIAm below).
 struct RemotePeer {
     bool bound;
-    uint8_t connectionString[6];          // IP[4] + UDP port[2], network order
+    uint8_t connectionString[18];         // IP[4] + UDP port[2] (BACnet/IP), or IPv6[16] + UDP port[2] (BACnet/IPv6), network order;
+                                          // TRANSPORT_CONNECTION_STRING_LENGTH of them
     uint8_t readPropertyInvokeId;         // the outstanding ReadProperty, if any
     bool readPropertyPending;
     uint8_t readPropertyMultipleInvokeId; // the outstanding ReadPropertyMultiple, if any
@@ -1629,14 +1671,14 @@ void HookIAm(const uint32_t deviceIdentifier, const uint32_t maxApduLengthAccept
     // Only the peer, and only when it is on this network (no router in between:
     // a remote peer would need its DNET/DADR on every read, which this example
     // does not do).
-    if (deviceIdentifier != REMOTE_DEVICE_INSTANCE || sourceNetwork != 0 || connectionStringLength != 6) {
+    if (deviceIdentifier != REMOTE_DEVICE_INSTANCE || sourceNetwork != 0 || connectionStringLength != TRANSPORT_CONNECTION_STRING_LENGTH) {
         return;
     }
-    if (!g_peer.bound || memcmp(g_peer.connectionString, connectionString, 6) != 0) {
-        memcpy(g_peer.connectionString, connectionString, 6);
-        printf("PEER: device %u is at %u.%u.%u.%u:%u - polling its Analog Input %u\n",
-               REMOTE_DEVICE_INSTANCE, connectionString[0], connectionString[1], connectionString[2],
-               connectionString[3], (unsigned)((connectionString[4] << 8) | connectionString[5]),
+    if (!g_peer.bound || memcmp(g_peer.connectionString, connectionString, TRANSPORT_CONNECTION_STRING_LENGTH) != 0) {
+        memcpy(g_peer.connectionString, connectionString, TRANSPORT_CONNECTION_STRING_LENGTH);
+        char peerText[64];
+        printf("PEER: device %u is at %s - polling its Analog Input %u\n",
+               REMOTE_DEVICE_INSTANCE, AddressText(connectionString, peerText, sizeof(peerText)),
                REMOTE_ANALOG_INPUT_INSTANCE);
     }
     if (!g_peer.bound) {
@@ -1696,8 +1738,8 @@ static void PollPeer() {
     const uint32_t elementCount = useReadPropertyMultiple ? 2 : 1;
     if (!BACnetStack_SendReadProperty(&invokeId,
                                       (uint8_t)(useReadPropertyMultiple ? SERVICE_READ_PROPERTY_MULTIPLE : SERVICE_READ_PROPERTY),
-                                      g_peer.connectionString, sizeof(g_peer.connectionString),
-                                      NETWORK_PORT_INSTANCE, 0, NULL, 0,
+                                      g_peer.connectionString, TRANSPORT_CONNECTION_STRING_LENGTH,
+                                      TRANSPORT_PORT_INSTANCE, 0, NULL, 0,
                                       elementCount, elements, elementCount * 15)) {
         printf("PEER: FYI could not send the %s to device %u\n",
                useReadPropertyMultiple ? "ReadPropertyMultiple" : "ReadProperty", REMOTE_DEVICE_INSTANCE);
@@ -1869,18 +1911,27 @@ static void HandleReadPropertyMultipleAck(const uint8_t* apdu, size_t apduLength
 // Anything that is not an answer from the peer to one of our two reads is left to
 // the stack alone.
 static void HandleReplyFromPeer(const uint8_t* message, size_t messageLength,
-                                const uint8_t fromIp[4], uint16_t fromPort) {
-    if (!g_peer.bound || memcmp(fromIp, g_peer.connectionString, 4) != 0 ||
-        fromPort != (uint16_t)((g_peer.connectionString[4] << 8) | g_peer.connectionString[5])) {
+                                const uint8_t* fromAddress, uint16_t fromPort) {
+    if (!g_peer.bound || memcmp(fromAddress, g_peer.connectionString, TRANSPORT_ADDRESS_LENGTH) != 0 ||
+        fromPort != (uint16_t)((g_peer.connectionString[TRANSPORT_ADDRESS_LENGTH] << 8) | g_peer.connectionString[TRANSPORT_ADDRESS_LENGTH + 1])) {
         return;
     }
+#ifdef BBC_IPV6
+    // BVLL-IPv6 (Annex U.2.2): 0x82, function 0x01, length[2], source VMAC[3], destination VMAC[3]: 10 octets. Original-Unicast-NPDU
+    // only - the answer to a unicast request is unicast.
+    if (messageLength < 10 || message[0] != 0x82 || message[1] != 0x01) {
+        return;
+    }
+    size_t position = 10;
+#else
     // BVLL (Annex J.2): 0x81, function, length[2]. Original-Unicast-NPDU only - the
     // answer to a unicast request is unicast.
     if (messageLength < 4 || message[0] != 0x81 || message[1] != 0x0A) {
         return;
     }
-    // NPDU (cl. 6.2): version 1, control, then the optional DNET/SNET fields.
     size_t position = 4;
+#endif
+    // NPDU (cl. 6.2): version 1, control, then the optional DNET/SNET fields.
     if (messageLength < position + 2 || message[position] != 0x01) {
         return;
     }
@@ -1945,35 +1996,58 @@ uint16_t CallbackReceiveMessage(uint8_t* message, const uint16_t maxMessageLengt
                                 const uint8_t maxConnectionStringLength, uint32_t* networkPortInstance) {
     (void)destinationConnectionString;
     (void)destinationConnectionStringLength;
-    if (maxConnectionStringLength < 6) {
+    if (maxConnectionStringLength < TRANSPORT_CONNECTION_STRING_LENGTH) {
         return 0;
     }
-    uint8_t fromIp[4] = { 0, 0, 0, 0 };
+    uint8_t fromAddress[16] = { 0 };
     uint16_t fromPort = 0;
-    const uint16_t received = g_udp.Receive(message, maxMessageLength, fromIp, &fromPort);
+    const uint16_t received = g_udp.Receive(message, maxMessageLength, fromAddress, &fromPort);
     if (received == 0) {
         return 0;
     }
-    printf("RX %u bytes from %u.%u.%u.%u:%u (Network Port %u)", (unsigned)received,
-           fromIp[0], fromIp[1], fromIp[2], fromIp[3], (unsigned)fromPort, NETWORK_PORT_INSTANCE);
+    char fromText[64];
+    uint8_t fromConnectionString[18] = { 0 };
+    memcpy(fromConnectionString, fromAddress, TRANSPORT_ADDRESS_LENGTH);
+    fromConnectionString[TRANSPORT_ADDRESS_LENGTH] = (uint8_t)(fromPort >> 8);
+    fromConnectionString[TRANSPORT_ADDRESS_LENGTH + 1] = (uint8_t)(fromPort & 0xFF);
+    printf("RX %u bytes from %s (Network Port %u)", (unsigned)received,
+           AddressText(fromConnectionString, fromText, sizeof(fromText)), TRANSPORT_PORT_INSTANCE);
     CASExampleHelper::LogBacnetFrame(message, received);
-    memcpy(sourceConnectionString, fromIp, 4);
-    sourceConnectionString[4] = (uint8_t)(fromPort >> 8);
-    sourceConnectionString[5] = (uint8_t)(fromPort & 0xFF);
-    *sourceConnectionStringLength = 6;
-    *networkPortInstance = NETWORK_PORT_INSTANCE;
+    memcpy(sourceConnectionString, fromConnectionString, TRANSPORT_CONNECTION_STRING_LENGTH);
+    *sourceConnectionStringLength = TRANSPORT_CONNECTION_STRING_LENGTH;
+    *networkPortInstance = TRANSPORT_PORT_INSTANCE;
     // Look at a COPY's worth of it (nothing here changes `message`), then hand the
     // same bytes to the stack, which does all of its normal processing.
-    HandleReplyFromPeer(message, received, fromIp, fromPort);
+    HandleReplyFromPeer(message, received, fromAddress, fromPort);
     return received;
 }
 
 uint16_t CallbackSendMessage(const uint8_t* message, const uint16_t messageLength,
                              const uint8_t* connectionString, const uint8_t connectionStringLength,
                              const uint32_t networkPortInstance, const bool broadcast) {
-    if (networkPortInstance != NETWORK_PORT_INSTANCE) {
+    if (networkPortInstance != TRANSPORT_PORT_INSTANCE) {
         return 0;
     }
+    char destinationText[64];
+#ifdef BBC_IPV6
+    // BACnet/IPv6: a broadcast carries no address (Annex U.4): the multicast group is this example's to choose.
+    if (broadcast || connectionString == NULL || connectionStringLength == 0) {
+        const uint16_t sent = g_udp.SendMulticast(message, messageLength);
+        printf("TX %u bytes to [ff02::bac0]:%u (multicast broadcast) (Network Port %u)", (unsigned)sent,
+               (unsigned)g_udp.GetLocalPort(), TRANSPORT_PORT_INSTANCE);
+        CASExampleHelper::LogBacnetFrame(message, messageLength);
+        return sent;
+    }
+    if (connectionStringLength < TRANSPORT_CONNECTION_STRING_LENGTH) {
+        return 0;
+    }
+    const uint16_t port = (uint16_t)((connectionString[16] << 8) | connectionString[17]);
+    const uint16_t sent = g_udp.Send(connectionString, port, message, messageLength);
+    printf("TX %u bytes to %s (Network Port %u)", (unsigned)sent,
+           AddressText(connectionString, destinationText, sizeof(destinationText)), TRANSPORT_PORT_INSTANCE);
+    CASExampleHelper::LogBacnetFrame(message, messageLength);
+    return sent;
+#else
     uint8_t destination[6];
     bool isBroadcast = broadcast;
     if (connectionString == NULL || connectionStringLength == 0) {
@@ -1987,19 +2061,24 @@ uint16_t CallbackSendMessage(const uint8_t* message, const uint16_t messageLengt
     }
     const uint16_t port = (uint16_t)((destination[4] << 8) | destination[5]);
     const uint16_t sent = g_udp.Send(destination, port, message, messageLength);
-    printf("TX %u bytes to %u.%u.%u.%u:%u%s (Network Port %u)", (unsigned)sent,
-           destination[0], destination[1], destination[2], destination[3], (unsigned)port,
-           isBroadcast ? " (broadcast)" : "", NETWORK_PORT_INSTANCE);
+    printf("TX %u bytes to %s%s (Network Port %u)", (unsigned)sent,
+           AddressText(destination, destinationText, sizeof(destinationText)),
+           isBroadcast ? " (broadcast)" : "", TRANSPORT_PORT_INSTANCE);
     CASExampleHelper::LogBacnetFrame(message, messageLength);
     return sent;
+#endif
 }
 
-// The start-up / restart I-Am, to the local subnet broadcast.
+// The start-up / restart I-Am, to the local subnet broadcast (BACnet/IP) or the multicast group (BACnet/IPv6).
 static void SendIAmToLocalSubnet() {
+#ifdef BBC_IPV6
+    BACnetStack_SendIAm(g_deviceInstance, NULL, 0, TRANSPORT_PORT_INSTANCE, true /*broadcast*/, 0 /*local network*/, NULL, 0);
+#else
     uint8_t broadcastConn[6];
     LocalBroadcastConnString(broadcastConn);
     BACnetStack_SendIAm(g_deviceInstance, broadcastConn, sizeof(broadcastConn), NETWORK_PORT_INSTANCE,
                         true /*broadcast*/, 0 /*local network*/, NULL, 0);
+#endif
 }
 
 // -----------------------------------------------------------------------------
@@ -2049,15 +2128,32 @@ int main(int argc, char** argv) {
     // This example binds its own socket (g_udp, section 2e) rather than calling
     // CASExampleHelper::SetupUDP(), so its receive callback can see the peer's
     // answers to its reads.
+#ifdef BBC_IPV6
+    // --interface <n>: join the multicast group on one interface only (its index: `ipconfig` shows it as the %n after a link-local address)
+    uint32_t ipv6Interface = 0; // 0 = every IPv6 interface that is up
+    for (int argumentIndex = 1; argumentIndex + 1 < argc; ++argumentIndex) {
+        if (strcmp(argv[argumentIndex], "--interface") == 0) {
+            ipv6Interface = (uint32_t)strtoul(argv[argumentIndex + 1], NULL, 10);
+        }
+    }
+    if (!g_udp.Connect(port, ipv6Interface)) {
+        printf("Error: Failed to bind UDP port %u over IPv6.\n", (unsigned)port);
+        return 1;
+    }
+    printf("FYI: Listening for BACnet/IPv6 on UDP port %u; joined the multicast group FF02::BAC0 on %u interface(s).\n",
+           (unsigned)port, (unsigned)g_udp.GetJoinedInterfaceCount());
+#else
     if (!g_udp.Connect(port)) {
         printf("Error: Failed to bind UDP port %u.\n", (unsigned)port);
         return 1;
     }
     printf("FYI: Listening for BACnet/IP on UDP port %u (Network Port %u).\n",
            (unsigned)port, NETWORK_PORT_INSTANCE);
+#endif
 
     // Capture the BACnet/IP addressing the Network Port object will report.
     g_bacnetIpUdpPort = port;
+#ifndef BBC_IPV6
     if (!CASExampleHelper::GetLocalIPv4(g_ipAddress, g_ipSubnetMask)) {
         printf("FYI: could not read a local IPv4 address; Network Port IP_Address "
                "will report 0.0.0.0.\n");
@@ -2069,6 +2165,7 @@ int main(int argc, char** argv) {
         printf("FYI: could not determine the local link speed; Network Port "
                "Link_Speed will report 0.0 (indeterminable).\n");
     }
+#endif // !BBC_IPV6
 
     // --- Register callbacks -------------------------------------------------
     // The time callback is shared boilerplate (RegisterCommonCallbacks also
@@ -2204,6 +2301,10 @@ int main(int argc, char** argv) {
     // networkNumber 0 with quality "unknown" describes a local port that has not
     // learned its network number - the right answer for a device that is not a
     // router and has not been told one.
+#ifdef BBC_IPV6
+    // BACnet/IPv6 build: the stack has no IPv6 Network Port object yet (cas-bacnet-stack#4611), and its IPv6 data link is the
+    // only transport, which the default port instance names - so there is no Network Port object to add here.
+#else
     if (!BACnetStack_AddNetworkPortObject(
             g_deviceInstance, NETWORK_PORT_INSTANCE,
             NETWORK_PORT_NETWORK_TYPE_IPV4,
@@ -2214,6 +2315,7 @@ int main(int argc, char** argv) {
         printf("Error: Failed to add Network Port 1 (Vermilion).\n");
         return 1;
     }
+#endif // BBC_IPV6
 
     // --- Enable the OPTIONAL properties we choose to expose ------------------
     // The stack automatically enables an object's REQUIRED properties when the
@@ -2322,6 +2424,10 @@ int main(int argc, char** argv) {
     //    by ADDRESS (the form the stack can actually send to). The MAC is the
     //    BACnet/IP recipient: four IP octets followed by the two-octet UDP port.
     //    validDays 0x7F = every day; the time window 00:00:00 - 23:59:59 = always.
+#ifdef BBC_IPV6
+    // BACnet/IPv6 build: the seeded recipient is a BACnet/IP address (4 IP octets and a port), which a B/IPv6 network has no use for.
+    // Notification Class 1 starts with an empty Recipient_List; a management station writes one (it is writable, below).
+#else
     uint8_t recipientMac[6];
     if (RECIPIENT_USE_BROADCAST) {
         LocalBroadcastConnString(recipientMac);
@@ -2346,6 +2452,7 @@ int main(int argc, char** argv) {
         printf("Error: could not seed the Notification Class recipient (Crimson).\n");
         return 1;
     }
+#endif // BBC_IPV6
 
     // 4) Turn on intrinsic event reporting for Diamond, routed through Crimson.
     if (!BACnetStack_SetAlarmsAndEventsForObjectEnabled(
@@ -2614,10 +2721,14 @@ int main(int argc, char** argv) {
 
     // A B-BC must also be able to DISCOVER other devices (DM-DDB-A), so broadcast
     // a Who-Is on start-up - every device on the subnet answers with its I-Am.
+#ifdef BBC_IPV6
+    BACnetStack_SendWhoIs(NULL, 0, TRANSPORT_PORT_INSTANCE, true /*broadcast*/, 0, NULL, 0);
+#else
     uint8_t broadcastConn[6];
     LocalBroadcastConnString(broadcastConn);
     BACnetStack_SendWhoIs(broadcastConn, sizeof(broadcastConn), NETWORK_PORT_INSTANCE,
                           true /*broadcast*/, 0, NULL, 0);
+#endif
 
     printf("FYI: Device %u (\"%s\") ready. Vendor ID %u. Press 'h' for help.\n",
            g_deviceInstance, DEVICE_NAME, VENDOR_IDENTIFIER);
