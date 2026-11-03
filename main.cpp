@@ -141,7 +141,7 @@ using namespace CASBACnetStackExampleConstants;
 // 1. Example + device configuration
 // -----------------------------------------------------------------------------
 static const char* APP_NAME = "BACnet B-BC (Building Controller) Example - C++";
-static const char* APP_VERSION = "1.3.0";
+static const char* APP_VERSION = "1.3.1";
 
 // The device instance. BACnet requires this to be configurable, so it defaults
 // to 389005 and can be overridden on the command line with --deviceID. Keep it
@@ -2498,6 +2498,11 @@ static void HandleReplyFromPeer(const uint8_t* message, size_t messageLength,
 // different: its engine moves OCTETS through the byte callbacks
 // (mstp/MstpDataLink) and needs nothing here.
 
+// The last BACnet/IP peer that sent from a UDP port other than ours (see SendToUdp).
+static uint8_t g_lastPeerIp[4] = { 0 };
+static uint16_t g_lastPeerPort = 0;
+static bool g_hasLastPeer = false;
+
 // Receive one BACnet/IP or BACnet/IPv6 datagram.
 static uint16_t ReceiveFromUdp(uint8_t* message, const uint16_t maxMessageLength, uint8_t* sourceConnectionString,
                                uint8_t* sourceConnectionStringLength, const uint8_t maxConnectionStringLength) {
@@ -2526,6 +2531,14 @@ static uint16_t ReceiveFromUdp(uint8_t* message, const uint16_t maxMessageLength
     *sourceConnectionStringLength = connectionStringLength;
     // Look at a COPY's worth of it (nothing here changes `message`), then hand the
     // same bytes to the stack, which does all of its normal processing.
+    if (g_options.dataLink == DataLink::IPv4 && fromPort != g_options.udpPort) {
+        // Remember the last peer that is NOT on our bound UDP port: a BACnet/IP
+        // broadcast reaches only the bound port, so SendToUdp() also unicasts the
+        // answers to a broadcast the stack addresses itself to this peer.
+        memcpy(g_lastPeerIp, fromAddress, 4);
+        g_lastPeerPort = fromPort;
+        g_hasLastPeer = true;
+    }
     HandleReplyFromPeer(message, received, fromAddress, fromPort);
     return received;
 }
@@ -2581,6 +2594,43 @@ static uint16_t SendToUdp6(const uint8_t* message, const uint16_t messageLength,
     return sent;
 }
 
+// True when the BVLC frame is an answer the stack addresses itself: a network layer
+// message (I-Am-Router-To-Network, Network-Number-Is), or an unconfirmed I-Am / I-Have.
+// Only an Original-Unicast-NPDU (0x0A) or Original-Broadcast-NPDU (0x0B) is ever copied
+// to the peer on another port; a Forwarded-NPDU (0x04, Annex J.4.5) and other stringless
+// broadcasts (an UnconfirmedEventNotification, for one) are not. Same rule as
+// IsStackChosenBroadcast() in common/CASExampleHelper.cpp (common/ 3.6.1).
+static bool IsStackChosenBroadcast(const uint8_t* message, const uint16_t length) {
+    if (length < 6 || message[0] != 0x81 || (message[1] != 0x0A && message[1] != 0x0B)) {
+        return false;
+    }
+    uint16_t i = 4; // past the BVLC header
+    if (i + 2 > length || message[i] != 0x01) {
+        return false;
+    }
+    const uint8_t control = message[i + 1];
+    i += 2;
+    if (control & 0x20) { // destination specifier: DNET(2) DLEN(1) DADR(DLEN)
+        if (i + 3 > length) {
+            return false;
+        }
+        i += 3 + message[i + 2];
+    }
+    if (control & 0x08) { // source specifier: SNET(2) SLEN(1) SADR(SLEN)
+        if (i + 3 > length) {
+            return false;
+        }
+        i += 3 + message[i + 2];
+    }
+    if (control & 0x20) { // hop count
+        i += 1;
+    }
+    if (control & 0x80) { // network layer message
+        return true;
+    }
+    return i + 2 <= length && (message[i] >> 4) == 1 && (message[i + 1] == 0 || message[i + 1] == 1);
+}
+
 // Send on BACnet/IP: to one peer, or - no address - to the local subnet broadcast.
 static uint16_t SendToUdp(const uint8_t* message, const uint16_t messageLength, const uint8_t* connectionString,
                           const uint8_t connectionStringLength, const bool broadcast) {
@@ -2602,6 +2652,21 @@ static uint16_t SendToUdp(const uint8_t* message, const uint16_t messageLength, 
            AddressText(destination, destinationText, sizeof(destinationText)),
            isBroadcast ? " (broadcast)" : "", NETWORK_PORT_INSTANCE);
     CASExampleHelper::LogBacnetFrame(message, messageLength);
+    if ((connectionString == NULL || connectionStringLength == 0) && g_hasLastPeer &&
+        IsStackChosenBroadcast(message, messageLength)) {
+        // Stack 6.x leaves the address of a broadcast it chooses itself (the I-Am
+        // answering a Who-Is, I-Have, I-Am-Router-To-Network) to the host. A tool on
+        // this host on another UDP port never hears the subnet broadcast, so also
+        // send the same frame unicast to the last such peer.
+        uint8_t peer[6];
+        memcpy(peer, g_lastPeerIp, 4);
+        peer[4] = (uint8_t)(g_lastPeerPort >> 8);
+        peer[5] = (uint8_t)(g_lastPeerPort & 0xFF);
+        const uint16_t peerSent = g_udp.Send(peer, g_lastPeerPort, message, messageLength);
+        printf("TX %u bytes to %s (peer on another port) (Network Port %u)", (unsigned)peerSent,
+               AddressText(peer, destinationText, sizeof(destinationText)), NETWORK_PORT_INSTANCE);
+        CASExampleHelper::LogBacnetFrame(message, messageLength);
+    }
     return sent;
 }
 

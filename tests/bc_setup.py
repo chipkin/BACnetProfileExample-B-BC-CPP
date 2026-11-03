@@ -17,6 +17,7 @@ HumidityPeer is wiretest.SimulatedServer (wiretest 0.6.0) configured as this Pee
 objects, which properties are writable, a FAULT flag and a "silent" switch.
 """
 import argparse
+import datetime
 import sys
 
 from pathlib import Path
@@ -35,6 +36,23 @@ PEER_ANALOG_OUTPUT_INSTANCE = 1        # REMOTE_ANALOG_OUTPUT_INSTANCE - Schedul
 DIAMOND = (2, 1)                       # Analog Value 1 "Diamond" - the controller's copy
 SCHEDULE_DEFAULT_VALUE = 20.0          # SCHEDULE_DEFAULT_VALUE
 SCHEDULE_WRITE_PRIORITY = 8            # SCHEDULE_WRITE_PRIORITY
+SCHEDULE_DEMO_VALUE = 75.0             # SCHEDULE_DEMO_VALUE - the weekly Monday 08:00 transition
+SCHEDULE_EXCEPTION_VALUE = 5.0         # SCHEDULE_EXCEPTION_VALUE - Calendar 1's dates (December 25)
+
+
+def scheduled_value(default=SCHEDULE_DEFAULT_VALUE, now=None):
+    """The value Schedule 1 takes at `now` (the controller runs on this host, on local time).
+
+    main.cpp's schedule: Calendar 1's exception on December 25, the weekly transition from
+    Monday 08:00 to the end of Monday, Schedule_Default the rest of the week. A check that
+    expects Schedule_Default alone fails every Monday after 08:00.
+    """
+    now = now or datetime.datetime.now()
+    if (now.month, now.day) == (12, 25):
+        return SCHEDULE_EXCEPTION_VALUE
+    if now.weekday() == 0 and now.hour >= 8:
+        return SCHEDULE_DEMO_VALUE
+    return default
 COMMS_LOSS_SECONDS = 3.0               # REMOTE_COMMS_LOSS_MILLISECONDS
 
 SERVICE_READ_PROPERTY_MULTIPLE = codec.SERVICE_READ_PROPERTY_MULTIPLE

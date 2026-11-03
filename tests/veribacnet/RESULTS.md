@@ -7,13 +7,13 @@ addresses.
 
 | | |
 |---|---|
-| Date | 2026-10-27 |
-| Example | BACnet B-BC (Building Controller) Example - C++ v1.2.0 (`common/` 3.5.0), CAS BACnet Stack `6.x` @ `69b6249f` |
+| Date | 2026-10-30 |
+| Example | BACnet B-BC (Building Controller) Example - C++ v1.3.0 (`common/` 3.5.0), CAS BACnet Stack `6.x` @ `d9f39406` |
 | Profile | B-BC (BACnet Building Controller) |
 | Transport | BACnet/IP, UDP port 47838 |
-| VeriBACnet | 0.20.0, tool batches 8 to 15 (its test device uses CAS BACnet Stack 6.0.23.0) |
+| VeriBACnet | 0.20.0, tool batches up to 2026-10-30 (its test device uses CAS BACnet Stack 6.0.23.0) |
 | Test plan | 239 BTL tests (ANSI/ASHRAE 135.1-2023) selected for the B-BC profile and the options the example claims |
-| Result | **90 PASS · 9 FAIL · 0 ERROR · 140 SKIP** |
+| Result | **91 PASS · 3 FAIL · 0 ERROR · 145 SKIP** |
 
 **Judged BTL-clean on BACnet/IP, with a star**: no failure or error is the
 example's own fault, every other failure is tracked, and every skipped test has
@@ -25,7 +25,9 @@ The run was made without a peer device, so Analog Value 1 (Diamond) reported
 `communication-failure` throughout, exactly as the example documents for a
 controller whose peer is missing.
 
-**What changed since the last run:** the test tool moved on (batches 8 to 15: the
+**What changed since the previous run (2026-10-27):** the example is now 1.3.0 (the project files declare the new version); the six automated BUFFER_READY companions no longer FAIL (they SKIP, the reference device's control plane is not available); the 7.2.2 failure is gone; 7.3.1.11.1 now runs and fails because, with no peer, Analog Value 1 is in FAULT as designed (see below).
+
+**Earlier changes:** the test tool moved on (batches 8 to 15: the
 tests take their objects and values from the device, the by-time and
 by-sequence ReadRange rows follow the clause, and the Backup and Restore
 "password not required" tests run). Re-selecting gave 239 tests instead of 233.
@@ -34,7 +36,7 @@ WriteProperty of `Enable`, `Record_Count` (0 clears the log) and `Log_Interval`;
 the PICS and EPICS now say so, and the Wire Test `trend_log_write_test.py`
 checks it. That made the Write Support test (7.2.2) run on the Trend Logs.
 
-**Measured coverage:** 99 of the 239 selected tests ran (90 passed, 9 failed).
+**Measured coverage:** 94 of the 239 selected tests ran (91 passed, 3 failed).
 Of the 140 skipped, 51 wait on a test-tool or test-script fix (tracked; most of
 them because the test tool cannot yet be given, or cannot yet set up itself,
 the scenario data they need: AcknowledgeAlarm, the Trend Log scenarios and
@@ -77,19 +79,18 @@ sets.
 
 ## Tests that did not pass
 
-All nine are test-script defects, tracked; none is the device's fault.
+All three are test-script defects, tracked; none is the device's fault.
 
 | Test | Result | Why |
 |---|---|---|
-| Automated BUFFER_READY companions of 8.4.7 and 8.5.7 (six: Trend Log, Trend Log Multiple, Event Log, confirmed and unconfirmed) | FAIL | The scripts address a second Trend Log, a second Trend Log Multiple and an Event Log that the device under test does not have, and drive Analog Value 1 through a control plane only the reference device has. This device's Trend Log 1 does send BUFFER_READY (Wire Test). |
+| 7.3.1.11.1 Acked_Transitions | FAIL | The script requires Analog Value 1's Status_Flags to start as {FALSE,FALSE,?,?}. Without a peer device Analog Value 1 reports `communication-failure` and FAULT by design, so the starting condition is not met; the script should skip rather than fail. With the peer attached the test no longer fails (it then needs an operator). |
 | 9.8.2, 9.8.3 automated companions | FAIL | The scripts first try to write Analog Value 1, which this device correctly refuses (its value is the peer's reading). |
-| 7.2.2 | FAIL | The script writes arbitrary non-zero values to the Trend Logs' `Record_Count`, which accepts only 0 (it clears the log); the EPICS states that range, the script does not read it. The other 7.2.2 writes pass. |
 
 ## Skipped tests, by reason
 
 | Tests | Why |
 |---|---|
-| 9.1.1.8 to 9.1.1.11, 9.1.1.15, 9.1.2.x and 7.3.1.11.1 AcknowledgeAlarm (12) | The tests compare against expected alarm values the project does not yet declare. Tracked. |
+| 9.1.1.8 to 9.1.1.11, 9.1.1.15, 9.1.2.x AcknowledgeAlarm (11) | The tests compare against expected alarm values the project does not yet declare. Tracked. |
 | 7.3.2.24.x Trend Log (13), 9.21.1.4.1, 9.21.1.7 to 9.21.1.10 and 9.21.2.4 ReadRange (6) | The test tool cannot yet be given the logging scenarios and the by-time / by-sequence reference values, although the EPICS marks the writable Trend Log properties. Tracked. |
 | 8.18.1, 8.18.2, 8.20.1 to 8.20.4, 8.20.5.2, 8.22.1 (8) | Tests of the requests this controller sends to its peer; the test tool cannot yet play the peer. Tracked. |
 | 7.3.2.23.10.8, 7.3.2.23.11.3, 7.3.2.23.11.4 Schedule (3) | The test tool cannot yet set up the Schedule configurations these tests need on a device it did not build. Tracked. |

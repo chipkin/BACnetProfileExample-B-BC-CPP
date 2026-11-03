@@ -208,7 +208,7 @@ object-name: "Chipkin Example B-BC"
 object-type: DEVICE
 apdu-segment-timeout: 5000
 apdu-timeout: 10000
-application-software-version: "1.2.0"
+application-software-version: "1.3.1"
 daylight-savings-status: ?
 description: "Chipkin CAS BACnet Stack example - B-BC (Building Controller) profile, the series capstone. Demonstrates DS-RP/RPM/WP/WPM-A/B, intrinsic alarming, SCHED-E-B, trending, DM-DCC-B, DM-TS-B/UTC-B, DM-RD-B, and DM-BR-B."
 device-address-binding: ?

@@ -6,7 +6,10 @@ BBMD, then changes Schedule 1's Schedule_Default so the schedule re-evaluates an
 
 Usage (B-BC running on --port 47900 on this host):
     python tests/sched_e_b_remote_peer.py --target-port 47900
-Prints RESULT: PASS when the peer's AO 1 Present_Value == --value at priority 8.
+Prints RESULT: PASS when the peer's AO 1 Present_Value is the value Schedule 1 takes now at
+priority 8: --value, or the weekly / exception value while one of those is in force (on a
+Monday after 08:00 or on December 25 a new Schedule_Default changes nothing, so the check is
+then that the scheduled value reached the peer).
 """
 import asyncio
 from bacpypes3.argparse import SimpleArgumentParser
@@ -14,6 +17,8 @@ from bacpypes3.app import Application
 from bacpypes3.local.analog import AnalogOutputObject
 from bacpypes3.pdu import Address
 from bacpypes3.primitivedata import ObjectIdentifier, Real
+
+import bc_setup
 
 async def main():
     p = SimpleArgumentParser()
@@ -39,16 +44,20 @@ async def main():
         print("Schedule PV before:", await app.read_property(bbc, sched, "present-value"))
         await app.write_property(bbc, sched, "schedule-default", Real(a.value))
         print("wrote Schedule_Default =", a.value)
+        expected = bc_setup.scheduled_value(a.value)
+        if expected != a.value:
+            print("a weekly or exception value is in force: expecting", expected)
         for _ in range(20):
             await asyncio.sleep(0.25)
-            if ao.presentValue == a.value:
+            if ao.presentValue == expected:
                 break
         print("Schedule PV after:", await app.read_property(bbc, sched, "present-value"))
         print("peer AO1 Present_Value:", ao.presentValue)
         print("peer AO1 Priority_Array:",
               [(i + 1, pv.real if pv.real is not None else "null")
                for i, pv in enumerate(ao.priorityArray) if pv.null is None])
-        print("RESULT:", "PASS" if ao.presentValue == a.value else "FAIL")
+        print("RESULT:", "PASS" if ao.presentValue == expected
+              and ao.priorityArray[bc_setup.SCHEDULE_WRITE_PRIORITY - 1].real == expected else "FAIL")
     finally:
         app.close()
 

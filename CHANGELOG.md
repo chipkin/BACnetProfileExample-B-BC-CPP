@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.3.1] - 2026-11-02
+
+Built on CAS BACnet Stack 6.x (`1e7dffe2b`).
+
+### Changed
+
+- **CAS BACnet Stack updated** to 6.x `1e7dffe2b` (still version 6.0.23), from
+  `d9f39406`.
+- **On BACnet/IP, an I-Am also reaches a client on another UDP port.** At this
+  stack version, a broadcast the stack sends without a destination address, such
+  as the I-Am that answers a Who-Is, an I-Have or a network layer message, is
+  addressed by the example. On `--datalink ipv4` the example's own socket code
+  still sends it to the local subnet broadcast address, and now also sends it
+  unicast to the last client heard from a UDP port other than the example's own,
+  so a tool on the same computer on another port hears the answer. Only those
+  messages are copied: a BBMD Forwarded-NPDU or a broadcast
+  UnconfirmedEventNotification (an alarm, a BUFFER_READY) is not duplicated.
+- Vendored `common/` updated to 3.6.1, which applies the same rule in its own
+  socket helper; see `common/CHANGELOG.md`.
+- **README**: names the new stack version and describes the copy above under
+  BACnet/IP; the profile example table is the same in every example, with the
+  blocked examples marked with their open stack issue.
+
+### Fixed
+
+- **VeriBACnet project** (`tests/veribacnet/`): the project files declare the
+  example's own Application_Software_Version (at 1.3.0 they still said 1.2.0),
+  so test 7.1.1 compares against the version the example reports.
+- **Wire Tests no longer fail on a Monday after 08:00.** `controller_test.py` and
+  `sched_e_b_remote_peer.py` expected Schedule 1 to write its Schedule_Default to the
+  Peer, but from Monday 08:00 to midnight the weekly transition is in force (75.0), and
+  on December 25 the Calendar exception (5.0). Both now expect the value the schedule
+  takes at the time they run (`bc_setup.scheduled_value()`). The release workflow runs
+  these tests, so a release built on a Monday would have failed.
+
 ## [1.3.0] - 2026-10-28
 
 Built on CAS BACnet Stack 6.x (`d9f39406`, 6.0.23). One executable now runs on any

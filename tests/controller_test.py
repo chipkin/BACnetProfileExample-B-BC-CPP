@@ -24,9 +24,10 @@ Analog Output 1. Checked here:
   - the Peer flags its own sensor FAULT: Diamond reports Reliability unreliable-other and
     HOLDS its last good value while the Peer's (bad) reading changes; clearing the fault
     lets the reading through again;
-  - DS-WP-A / SCHED-E-B: Schedule 1 writes the Peer's Analog Output 1 Present_Value = 20.0
-    at priority 8 - even though the Peer was not yet known when the controller started
-    (stack #2343: the write is kept until the Peer binds);
+  - DS-WP-A / SCHED-E-B: Schedule 1 writes the Peer's Analog Output 1 Present_Value (its
+    value now: 20.0, or 75.0 on a Monday after 08:00, 5.0 on December 25) at priority 8 -
+    even though the Peer was not yet known when the controller started (stack #2343: the
+    write is kept until the Peer binds);
   - Diamond itself is read-only now (its value belongs to the Peer): a WriteProperty to
     its Present_Value is refused.
 
@@ -130,11 +131,13 @@ def main():
                         f"Reliability={setup.reliability_name(reliability)} FAULT={fault!r}")
 
         # DS-WP-A: Schedule 1's write to the Peer, which was unknown when the controller started.
+        scheduled = setup.scheduled_value()
         expected_write = (codec.OBJECT_TYPE_ANALOG_OUTPUT, setup.PEER_ANALOG_OUTPUT_INSTANCE, PRESENT_VALUE,
-                          setup.SCHEDULE_DEFAULT_VALUE, setup.SCHEDULE_WRITE_PRIORITY)
+                          scheduled, setup.SCHEDULE_WRITE_PRIORITY)
         written = setup.wait_until(lambda: expected_write in peer.writes)
-        wiretest.record("DS-WP-A / SCHED-E-B: Schedule 1 wrote the Peer's Analog Output 1 Present_Value = 20.0 @ 8 "
-                        "(the Peer bound after start-up, stack #2343)", written, f"writes: {peer.writes}")
+        wiretest.record(f"DS-WP-A / SCHED-E-B: Schedule 1 wrote the Peer's Analog Output 1 Present_Value = {scheduled} "
+                        f"@ {setup.SCHEDULE_WRITE_PRIORITY} (the Peer bound after start-up, stack #2343)",
+                        written, f"writes: {peer.writes}")
 
         refused = diamond.client.write_property(args.port, setup.DIAMOND[0], setup.DIAMOND[1], PRESENT_VALUE,
                                                 codec.application_real(70.0))

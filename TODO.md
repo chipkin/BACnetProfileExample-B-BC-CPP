@@ -1,15 +1,29 @@
 # TODO - known gaps (each checked against the pinned stack source and/or the wire, not assumed)
 
-Stack pin: `d9f39406` (`6.x`, 2026-10-28, reports 6.0.23) since 1.3.0, the promotion that
-carries the BACnet/IPv6 data link, its client broadcasts (#4636) and the MS/TP engine. Before it:
-`632165847` (`issues/runbook`) on the `ipv6` branch, `69b6249f` for release 1.2.0, and
-`64b2cfac5` (`6.x`, 2026-10-15).
+Stack pin: `1e7dffe2b` (`6.x`, reports 6.0.23) since 1.3.1. Before it: `d9f39406` (`6.x`,
+2026-10-28) for release 1.3.0, the promotion that carries the BACnet/IPv6 data link, its client
+broadcasts (#4636) and the MS/TP engine; `632165847` (`issues/runbook`) on the `ipv6` branch,
+`69b6249f` for release 1.2.0, and `64b2cfac5` (`6.x`, 2026-10-15).
 
-This example is **Profile-functional** (series `docs/GLOSSARY.md`) since 1.1.0 (this file is current at release 1.3.0): the Wire
+This example is **Profile-functional** (series `docs/GLOSSARY.md`) since 1.1.0 (this file is current at release 1.3.1): the Wire
 Tests prove it reading a peer (DS-RP-A, DS-RPM-A), acting on the reading, writing the peer
 (DS-WP-A, SCHED-E-B) and handling the peer going silent. No `[KNOWN GAP]` - nothing in this
 example's Profile Function is blocked by the stack at this pin. What is left is this example's
 own scope (bottom of this file).
+
+## 1.3.1 - Stack Pin `1e7dffe2b`
+
+- **A broadcast the stack addresses itself now reaches the host without a destination
+  address** (the I-Am that answers a Who-Is, I-Have, a network layer message). On `ipv4` the
+  example's own socket code (`SendToUdp`, `main.cpp`, not `common/`) sends it to the subnet
+  broadcast address and also unicast to the last peer heard from another UDP port, so a tool
+  on the same host hears it. Only an Original-Unicast-NPDU or Original-Broadcast-NPDU that
+  carries a network layer message, an I-Am or an I-Have is copied (`IsStackChosenBroadcast`,
+  the same rule as `common/` 3.6.1); a Forwarded-NPDU or an UnconfirmedEventNotification is not.
+- **Checked:** Windows, `ipv4`: all Wire Tests pass (2026-11-01), and a full VeriBACnet run
+  (2026-11-02). Not re-run at this pin: Linux, macOS, and the `ipv6`, `mstp` and `sc` data
+  links (last checked at `d9f39406`, below). The `d9f39406` notes below were not re-checked at
+  `1e7dffe2b` unless this section says so.
 
 ## 1.3.0 - the four data links (`--datalink`)
 
@@ -145,7 +159,7 @@ own scope (bottom of this file).
 - **Trend Log writable properties** (`Enable`, `Record_Count`, `Log_Interval`) are in the PICS; Wire Test
   `trend_log_write_test.py`.
 
-## Known limitations (since 1.2.0, unchanged at 1.3.0)
+## Known limitations (since 1.2.0, unchanged at 1.3.1)
 
 None of these is a stack gap; they are this example's design, listed so a support request can quote them.
 
@@ -155,15 +169,13 @@ None of these is a stack gap; they are this example's design, listed so a suppor
   `--deviceName` at each start.
 - **Analog Value 1 "Diamond" cannot be driven from the network.** Its value is the controller's copy of
   peer 389002's Analog Input 1, so `Present_Value` and `Out_Of_Service` refuse writes (write-access-denied).
-  Test steps that must force an alarm on it need the peer, or an operator (ref:
-  `chipkin/chipkin-bacnet-testing-tool#680`).
+  Test steps that must force an alarm on it need the peer, or an operator.
 - **Trend Log 1's BUFFER_READY to-normal needs an acknowledgement** (Notification Class 1 has Ack_Required
   TRUE for to-normal) and AcknowledgeAlarm accepts Diamond only, so that transition stays unacknowledged in
   GetEventInformation. The behaviour is conformant; a second Notification Class with no acknowledgement
   would remove the wrinkle (Database_Revision 14 -> 15) and is not done.
 - **`Record_Count` accepts only a write of 0** (it clears the log); any other value is refused with
-  INVALID_VALUE_IN_THIS_STATE, because 135-2024 cl. 12.25.15 defines only that write
-  (ref: `chipkin/chipkin-bacnet-testing-tool#732`, a test-tool report).
+  INVALID_VALUE_IN_THIS_STATE, because 135-2024 cl. 12.25.15 defines only that write.
 - **No peer, no reading.** Without a device 389002 on the network Diamond reports `communication-failure`
   (documented behaviour, not a fault).
 - **Alarm acknowledgement, AE-CRL-B redirection and trend retrieval with ReadRange** are checked by hand
@@ -174,7 +186,7 @@ None of these is a stack gap; they are this example's design, listed so a suppor
 - **#2036** (Life Safety Point/Zone exports, open) - this example has no Life Safety objects.
 - **#2044, #2046** (access-family, open) - this example has no access-control objects.
 
-## Closed upstream - re-checked at this pin and removed from this file
+## Closed upstream - re-checked at `64b2cfac5` and removed from this file
 
 | Issue | What it was | At `64b2cfac5` |
 |---|---|---|
@@ -194,7 +206,7 @@ priority 8 - B-BC logs "SendExternalWriteProperty: device instance=[389002] not 
 DAB - the write is kept until it binds", then sends it once the I-Am arrives. This is now a
 check in `tests/controller_test.py`.
 
-## Checked by hand at this pin (not yet Wire Tests)
+## Checked by hand at `64b2cfac5` (not yet Wire Tests)
 
 On 2026-10-15, Windows build: ReinitializeDevice STARTBACKUP (SimpleACK, `System_Status`
 backup-in-progress), AtomicReadFile of File 1, ENDBACKUP, STARTRESTORE, AtomicWriteFile of 15
